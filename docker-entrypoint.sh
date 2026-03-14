@@ -2,7 +2,6 @@
 set -e
 
 echo "==> Waiting for database..."
-# Simple wait loop — try to connect for up to 30 seconds
 for i in $(seq 1 30); do
   if node -e "
     const { PrismaClient } = require('@prisma/client');
@@ -18,10 +17,10 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-echo "==> Running Prisma migrations..."
-npx prisma db push --skip-generate 2>&1 || echo "==> Prisma push failed (may already be up to date)"
+echo "==> Running Prisma schema push..."
+node node_modules/prisma/build/index.js db push --skip-generate 2>&1 || echo "==> Prisma push failed (may already be up to date)"
 
-# Seed if DB is empty (check if any tickets exist)
+# Seed if DB is empty
 TICKET_COUNT=$(node -e "
   const { PrismaClient } = require('@prisma/client');
   const p = new PrismaClient();
@@ -30,7 +29,7 @@ TICKET_COUNT=$(node -e "
 
 if [ "$TICKET_COUNT" = "0" ]; then
   echo "==> Database is empty, running seed..."
-  npx tsx scripts/seed.ts 2>&1 || echo "==> Seed failed (non-fatal)"
+  node node_modules/tsx/dist/cli.mjs scripts/seed.ts 2>&1 || echo "==> Seed failed (non-fatal)"
 else
   echo "==> Database already has $TICKET_COUNT tickets, skipping seed"
 fi
