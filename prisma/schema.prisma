@@ -1,0 +1,85 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Ticket {
+  id             String         @id @default(cuid())
+  subject        String
+  fromEmail      String
+  fromName       String
+  bodyText       String
+  bodyHtml       String?
+  outlookThreadId String?       @unique
+  outlookMessageId String?      @unique
+  status         TicketStatus   @default(OPEN)
+  priority       Priority       @default(MEDIUM)
+  category       Category?
+  language       String?        // detected language code e.g. "de", "fr"
+  summary        String?        // AI-generated English summary
+  aiDraft        String?        // AI draft reply
+  assignedToId   String?
+  assignedTo     TeamMember?    @relation(fields: [assignedToId], references: [id])
+  messages       Message[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Message {
+  id          String      @id @default(cuid())
+  ticketId    String
+  ticket      Ticket      @relation(fields: [ticketId], references: [id])
+  direction   Direction   // INBOUND or OUTBOUND
+  fromEmail   String
+  fromName    String
+  bodyText    String
+  bodyHtml    String?
+  outlookMessageId String? @unique
+  sentAt      DateTime    @default(now())
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  name     String
+  email    String   @unique
+  avatar   String?
+  role     String   @default("support")
+  tickets  Ticket[]
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING
+  RESOLVED
+  CLOSED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum Category {
+  BUG_REPORT
+  REFUND_REQUEST
+  ACCOUNT_ISSUE
+  FEATURE_REQUEST
+  BILLING
+  CONTENT_QUESTION
+  TECHNICAL_SUPPORT
+  OTHER
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
