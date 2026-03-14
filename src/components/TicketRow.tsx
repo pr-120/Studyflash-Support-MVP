@@ -59,16 +59,30 @@ export function TicketRow({ ticket, isSelected, onClick }: TicketRowProps) {
         </p>
       )}
 
-      {/* Row 4: badges */}
+      {/* Row 4: badges + assignee */}
       <div className="flex items-center gap-1.5 flex-wrap">
         <StatusBadge status={ticket.status} />
         <PriorityBadge priority={ticket.priority} />
         {ticket.language && <LanguageBadge language={ticket.language} />}
-        {ticket._count.messages > 1 && (
-          <span className="text-[10px] text-[hsl(var(--sidebar-muted-foreground))] ml-auto">
-            {ticket._count.messages} msgs
-          </span>
-        )}
+        <span className="ml-auto flex items-center gap-1.5">
+          {ticket.assignedTo && (
+            <span
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-white/10 text-[9px] font-bold text-white/70"
+              title={ticket.assignedTo.name}
+            >
+              {ticket.assignedTo.name
+                .split(" ")
+                .map((n) => n[0])
+                .join("")
+                .slice(0, 2)}
+            </span>
+          )}
+          {ticket._count.messages > 1 && (
+            <span className="text-[10px] text-[hsl(var(--sidebar-muted-foreground))]">
+              {ticket._count.messages} msgs
+            </span>
+          )}
+        </span>
       </div>
     </button>
   );

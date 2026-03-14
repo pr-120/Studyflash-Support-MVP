@@ -45,12 +45,17 @@ function inferPriority(tags: string[]): Priority {
   return "MEDIUM";
 }
 
-/* ── Status inference from tags ── */
+/* ── Status inference from tags + index for variety ── */
 
-function inferStatus(tags: string[]): TicketStatus {
+function inferStatus(tags: string[], index: number): TicketStatus {
   if (tags.includes("auto-closed")) return "CLOSED";
-  // Mix of statuses for variety
-  return "OPEN";
+  // Distribute statuses for a realistic-looking demo
+  const mod = index % 10;
+  if (mod < 4) return "OPEN";       // 40% open
+  if (mod < 6) return "IN_PROGRESS"; // 20% in progress
+  if (mod < 7) return "WAITING";     // 10% waiting
+  if (mod < 9) return "RESOLVED";    // 20% resolved
+  return "CLOSED";                   // 10% closed
 }
 
 /* ── Detect language from body text (simple heuristic) ── */
@@ -197,6 +202,75 @@ function assignTeamMember(
   }
 }
 
+/* ── Generate a stub English summary from category + body ── */
+
+function generateSummary(category: Category, body: string, language: string): string {
+  const snippet = body
+    .replace(/^MOBILE:\s*/i, "")
+    .replace(/\n/g, " ")
+    .slice(0, 80)
+    .trim();
+
+  const langLabel = language === "de" ? "German" : language === "fr" ? "French" : language === "nl" ? "Dutch" : "English";
+
+  const templates: Record<Category, string> = {
+    REFUND_REQUEST: `${langLabel}-speaking user requests a refund. "${snippet}..."`,
+    BILLING: `${langLabel}-speaking user has a billing/subscription question. "${snippet}..."`,
+    ACCOUNT_ISSUE: `${langLabel}-speaking user reports an account access issue. "${snippet}..."`,
+    BUG_REPORT: `${langLabel}-speaking user reports a bug or product issue. "${snippet}..."`,
+    TECHNICAL_SUPPORT: `${langLabel}-speaking user needs technical help. "${snippet}..."`,
+    FEATURE_REQUEST: `${langLabel}-speaking user requests a new feature. "${snippet}..."`,
+    CONTENT_QUESTION: `${langLabel}-speaking user has a question about study content. "${snippet}..."`,
+    OTHER: `${langLabel}-speaking user sent a support request. "${snippet}..."`,
+  };
+
+  return templates[category] || templates.OTHER;
+}
+
+/* ── Generate a stub draft reply based on category + language ── */
+
+function generateStubDraft(category: Category, language: string): string {
+  const drafts: Record<string, Record<string, string>> = {
+    de: {
+      REFUND_REQUEST:
+        "Guten Tag,\n\nvielen Dank für Ihre Nachricht bezüglich einer Rückerstattung. Wir haben Ihre Anfrage erhalten und werden diese innerhalb von 2-3 Werktagen bearbeiten.\n\nBitte beachten Sie, dass Rückerstattungen gemäß unserer Richtlinien innerhalb von 14 Tagen nach Kauf möglich sind.\n\nMit freundlichen Grüßen,\nDas Studyflash Support Team",
+      BILLING:
+        "Guten Tag,\n\nvielen Dank für Ihre Anfrage zu Ihrem Abonnement. Wir werden Ihr Anliegen so schnell wie möglich prüfen.\n\nSie können Ihre Abonnement-Einstellungen jederzeit unter Einstellungen > Abonnement verwalten.\n\nMit freundlichen Grüßen,\nDas Studyflash Support Team",
+      BUG_REPORT:
+        "Guten Tag,\n\nvielen Dank, dass Sie uns dieses Problem gemeldet haben. Unser technisches Team wird sich die Sache ansehen.\n\nKönnten Sie uns bitte mitteilen, welches Gerät und welche App-Version Sie verwenden? Das hilft uns bei der Fehlerbehebung.\n\nMit freundlichen Grüßen,\nDas Studyflash Support Team",
+      ACCOUNT_ISSUE:
+        "Guten Tag,\n\nvielen Dank für Ihre Nachricht. Wir werden Ihr Konto überprüfen und uns so schnell wie möglich bei Ihnen melden.\n\nMit freundlichen Grüßen,\nDas Studyflash Support Team",
+      DEFAULT:
+        "Guten Tag,\n\nvielen Dank für Ihre Nachricht. Wir haben Ihre Anfrage erhalten und werden uns so schnell wie möglich bei Ihnen melden.\n\nMit freundlichen Grüßen,\nDas Studyflash Support Team",
+    },
+    fr: {
+      REFUND_REQUEST:
+        "Bonjour,\n\nMerci de nous avoir contactés concernant un remboursement. Nous avons bien reçu votre demande et la traiterons dans les 2-3 jours ouvrables.\n\nCordialement,\nL'équipe Support Studyflash",
+      BILLING:
+        "Bonjour,\n\nMerci pour votre question concernant votre abonnement. Nous allons examiner votre demande dans les plus brefs délais.\n\nVous pouvez gérer votre abonnement dans Paramètres > Abonnement.\n\nCordialement,\nL'équipe Support Studyflash",
+      DEFAULT:
+        "Bonjour,\n\nMerci de nous avoir contactés. Nous avons bien reçu votre message et reviendrons vers vous dans les plus brefs délais.\n\nCordialement,\nL'équipe Support Studyflash",
+    },
+    nl: {
+      BILLING:
+        "Beste,\n\nBedankt voor uw bericht over uw abonnement. We zullen uw verzoek zo snel mogelijk behandelen.\n\nU kunt uw abonnement beheren via Instellingen > Abonnement.\n\nMet vriendelijke groeten,\nHet Studyflash Support Team",
+      DEFAULT:
+        "Beste,\n\nBedankt voor uw bericht. We hebben uw verzoek ontvangen en zullen zo snel mogelijk contact met u opnemen.\n\nMet vriendelijke groeten,\nHet Studyflash Support Team",
+    },
+    en: {
+      REFUND_REQUEST:
+        "Hello,\n\nThank you for reaching out regarding a refund. We've received your request and will process it within 2-3 business days.\n\nPlease note that refunds are available within 14 days of purchase per our policy.\n\nBest regards,\nThe Studyflash Support Team",
+      BUG_REPORT:
+        "Hello,\n\nThank you for reporting this issue. Our engineering team will investigate it.\n\nCould you let us know which device and app version you're using? This helps us troubleshoot.\n\nBest regards,\nThe Studyflash Support Team",
+      DEFAULT:
+        "Hello,\n\nThank you for contacting us. We've received your message and will get back to you as soon as possible.\n\nBest regards,\nThe Studyflash Support Team",
+    },
+  };
+
+  const langDrafts = drafts[language] || drafts.en;
+  return langDrafts[category] || langDrafts.DEFAULT;
+}
+
 /* ── Main ── */
 
 async function main() {
@@ -253,7 +327,7 @@ async function main() {
     }
 
     const priority = inferPriority(parsed.tags);
-    const status = inferStatus(parsed.tags);
+    const status = inferStatus(parsed.tags, i);
     const language = detectLanguage(parsed.body);
     const subject = extractSubject(parsed.body, parsed.ticketNumber);
     const { fromName, fromEmail } = extractSender(parsed.body);
@@ -275,7 +349,8 @@ async function main() {
           language,
           assignedToId,
           createdAt,
-          // summary and aiDraft are null — would be filled by AI pipeline in production
+          summary: generateSummary(category, parsed.body, language),
+          aiDraft: generateStubDraft(category, language),
           messages: {
             create: {
               direction: "INBOUND",

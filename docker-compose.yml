@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: studyflash
+      POSTGRES_PASSWORD: studyflash
+      POSTGRES_DB: studyflash_support
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studyflash"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgresql://studyflash:studyflash@db:5432/studyflash_support"
+      DIRECT_URL: "postgresql://studyflash:studyflash@db:5432/studyflash_support"
+      # MS Graph API (optional — fill in for Outlook integration)
+      AZURE_CLIENT_ID: ""
+      AZURE_CLIENT_SECRET: ""
+      AZURE_TENANT_ID: ""
+      SUPPORT_MAILBOX: "support@studyflash.ch"
+      # Anthropic (optional — fill in for AI features)
+      ANTHROPIC_API_KEY: ""
+      # Webhook
+      GRAPH_WEBHOOK_SECRET: "dev-secret"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

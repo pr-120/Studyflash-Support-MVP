@@ -8,17 +8,17 @@ import {
   ChevronDown,
   ChevronUp,
   User,
+  UserPlus,
   Headphones,
   Clock,
   AlertTriangle,
 } from "lucide-react";
 import { cn, formatRelativeTime, getLanguageName } from "@/lib/utils";
 import {
-  StatusBadge,
-  PriorityBadge,
   CategoryBadge,
   LanguageBadge,
 } from "./StatusBadge";
+import { EnrichmentPanel } from "./EnrichmentPanel";
 import type { Priority, TicketStatus, Category, Direction } from "@prisma/client";
 
 /* ---------- Types ---------- */
@@ -65,6 +65,7 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
   // Reply composer
   const [replyText, setReplyText] = useState("");
@@ -75,7 +76,7 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
   const [regenerating, setRegenerating] = useState(false);
   const [aiInstructions, setAiInstructions] = useState("");
 
-  // Status/priority editing
+  // Field editing
   const [updatingField, setUpdatingField] = useState<string | null>(null);
 
   const fetchTicket = useCallback(async () => {
@@ -97,13 +98,20 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
     fetchTicket();
   }, [fetchTicket]);
 
+  // Fetch team members for assignment dropdown
+  useEffect(() => {
+    fetch("/api/team")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setTeamMembers(data))
+      .catch(() => setTeamMembers([]));
+  }, []);
+
   /* ── Actions ── */
 
   async function handleSendReply() {
     if (!replyText.trim() || !ticket) return;
     setSending(true);
     try {
-      // Convert plain text to basic HTML
       const bodyHtml = replyText
         .split("\n")
         .map((line) => `<p>${line || "&nbsp;"}</p>`)
@@ -117,7 +125,7 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
 
       if (!res.ok) throw new Error("Failed to send");
       setReplyText("");
-      await fetchTicket(); // Refresh to show new message
+      await fetchTicket();
     } catch (err) {
       console.error("Send failed:", err);
     } finally {
@@ -154,10 +162,7 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
     }
   }
 
-  async function handleUpdateField(
-    field: string,
-    value: string | null
-  ) {
+  async function handleUpdateField(field: string, value: string | null) {
     if (!ticket) return;
     setUpdatingField(field);
     try {
@@ -173,7 +178,7 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
           ? {
               ...prev,
               [field]: updated[field],
-              assignedTo: updated.assignedTo ?? prev.assignedTo,
+              assignedTo: updated.assignedTo ?? null,
             }
           : prev
       );
@@ -206,68 +211,92 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
 
   /* ── Render ── */
 
+  const selectClass =
+    "h-7 rounded-md border border-gray-200 bg-white px-2 text-xs font-medium text-gray-700 outline-none hover:border-gray-300 focus:ring-1 focus:ring-blue-500";
+
   return (
-    <div className="flex h-full flex-col">
-      {/* ── Header bar ── */}
-      <header className="flex-shrink-0 border-b bg-white px-6 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-semibold text-gray-900 truncate">
-              {ticket.subject}
-            </h2>
-            <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
-              <span>
-                {ticket.fromName || ticket.fromEmail}
-              </span>
-              <span className="text-gray-300">|</span>
-              <span>{formatRelativeTime(ticket.createdAt)}</span>
+    <div className="flex h-full">
+      {/* ── Left: conversation column ── */}
+      <div className="flex flex-1 flex-col min-w-0">
+        {/* Header bar */}
+        <header className="flex-shrink-0 border-b bg-white px-6 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-lg font-semibold text-gray-900 truncate">
+                {ticket.subject}
+              </h2>
+              <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
+                <span>{ticket.fromName || ticket.fromEmail}</span>
+                <span className="text-gray-300">|</span>
+                <span>{formatRelativeTime(ticket.createdAt)}</span>
+              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="flex flex-shrink-0 items-center gap-2">
+              {ticket.language && (
+                <LanguageBadge language={ticket.language} />
+              )}
+
+              {/* Status */}
+              <select
+                value={ticket.status}
+                onChange={(e) => handleUpdateField("status", e.target.value)}
+                disabled={updatingField === "status"}
+                className={selectClass}
+              >
+                <option value="OPEN">Open</option>
+                <option value="IN_PROGRESS">In Progress</option>
+                <option value="WAITING">Waiting</option>
+                <option value="RESOLVED">Resolved</option>
+                <option value="CLOSED">Closed</option>
+              </select>
+
+              {/* Priority */}
+              <select
+                value={ticket.priority}
+                onChange={(e) => handleUpdateField("priority", e.target.value)}
+                disabled={updatingField === "priority"}
+                className={selectClass}
+              >
+                <option value="LOW">Low</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="HIGH">High</option>
+                <option value="URGENT">Urgent</option>
+              </select>
+
+              {/* Assignee */}
+              <select
+                value={ticket.assignedTo?.id ?? ""}
+                onChange={(e) =>
+                  handleUpdateField(
+                    "assignedToId",
+                    e.target.value || null
+                  )
+                }
+                disabled={updatingField === "assignedToId"}
+                className={selectClass}
+              >
+                <option value="">Unassigned</option>
+                {teamMembers.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* Badges + controls */}
-          <div className="flex flex-shrink-0 items-center gap-2">
-            {ticket.language && (
-              <LanguageBadge language={ticket.language} />
-            )}
-
-            {/* Status select */}
-            <select
-              value={ticket.status}
-              onChange={(e) =>
-                handleUpdateField("status", e.target.value)
-              }
-              disabled={updatingField === "status"}
-              className="h-7 rounded-md border border-gray-200 bg-white px-2 text-xs font-medium text-gray-700 outline-none hover:border-gray-300 focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="OPEN">Open</option>
-              <option value="IN_PROGRESS">In Progress</option>
-              <option value="WAITING">Waiting</option>
-              <option value="RESOLVED">Resolved</option>
-              <option value="CLOSED">Closed</option>
-            </select>
-
-            {/* Priority select */}
-            <select
-              value={ticket.priority}
-              onChange={(e) =>
-                handleUpdateField("priority", e.target.value)
-              }
-              disabled={updatingField === "priority"}
-              className="h-7 rounded-md border border-gray-200 bg-white px-2 text-xs font-medium text-gray-700 outline-none hover:border-gray-300 focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="LOW">Low</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="HIGH">High</option>
-              <option value="URGENT">Urgent</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Summary + category row */}
-        {(ticket.summary || ticket.category) && (
+          {/* Summary + category row */}
           <div className="mt-3 flex items-start gap-3">
             {ticket.category && (
               <CategoryBadge category={ticket.category} />
+            )}
+            {ticket.assignedTo && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                <UserPlus className="h-3 w-3" />
+                {ticket.assignedTo.name}
+              </span>
             )}
             {ticket.summary && (
               <p className="text-sm text-gray-600 leading-snug">
@@ -275,115 +304,118 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
               </p>
             )}
           </div>
-        )}
-      </header>
+        </header>
 
-      {/* ── Message thread ── */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        {ticket.messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-      </div>
+        {/* Message thread */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {ticket.messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} />
+          ))}
+        </div>
 
-      {/* ── AI Draft panel ── */}
-      {ticket.aiDraft && (
-        <div className="flex-shrink-0 border-t bg-blue-50/50">
-          <button
-            onClick={() => setShowAiDraft(!showAiDraft)}
-            className="flex w-full items-center gap-2 px-6 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 transition-colors"
-          >
-            <Sparkles className="h-4 w-4" />
-            AI Suggested Reply
-            {showAiDraft ? (
-              <ChevronUp className="ml-auto h-4 w-4" />
-            ) : (
-              <ChevronDown className="ml-auto h-4 w-4" />
-            )}
-          </button>
+        {/* AI Draft panel */}
+        {ticket.aiDraft && (
+          <div className="flex-shrink-0 border-t bg-blue-50/50">
+            <button
+              onClick={() => setShowAiDraft(!showAiDraft)}
+              className="flex w-full items-center gap-2 px-6 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 transition-colors"
+            >
+              <Sparkles className="h-4 w-4" />
+              AI Suggested Reply
+              {showAiDraft ? (
+                <ChevronUp className="ml-auto h-4 w-4" />
+              ) : (
+                <ChevronDown className="ml-auto h-4 w-4" />
+              )}
+            </button>
 
-          {showAiDraft && (
-            <div className="px-6 pb-3">
-              <div className="rounded-lg border border-blue-200 bg-white p-3 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                {ticket.aiDraft}
-              </div>
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  onClick={handleUseAiDraft}
-                  className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors"
-                >
-                  Use this draft
-                </button>
-                <div className="flex flex-1 items-center gap-1.5">
-                  <input
-                    type="text"
-                    value={aiInstructions}
-                    onChange={(e) => setAiInstructions(e.target.value)}
-                    placeholder="Custom instructions (optional)..."
-                    className="h-7 flex-1 rounded-md border border-gray-200 px-2 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleRegenerateDraft();
-                    }}
-                  />
+            {showAiDraft && (
+              <div className="px-6 pb-3">
+                <div className="rounded-lg border border-blue-200 bg-white p-3 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                  {ticket.aiDraft}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
                   <button
-                    onClick={handleRegenerateDraft}
-                    disabled={regenerating}
-                    className="flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    onClick={handleUseAiDraft}
+                    className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors"
                   >
-                    {regenerating ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-3 w-3" />
-                    )}
-                    Regenerate
+                    Use this draft
                   </button>
+                  <div className="flex flex-1 items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={aiInstructions}
+                      onChange={(e) => setAiInstructions(e.target.value)}
+                      placeholder="Custom instructions (optional)..."
+                      className="h-7 flex-1 rounded-md border border-gray-200 px-2 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleRegenerateDraft();
+                      }}
+                    />
+                    <button
+                      onClick={handleRegenerateDraft}
+                      disabled={regenerating}
+                      className="flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    >
+                      {regenerating ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3 w-3" />
+                      )}
+                      Regenerate
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Reply composer ── */}
-      <div className="flex-shrink-0 border-t bg-white px-6 py-3">
-        <div className="flex gap-2">
-          <textarea
-            value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
-            placeholder={`Reply to ${ticket.fromName || ticket.fromEmail}...`}
-            rows={3}
-            className="flex-1 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition-colors placeholder:text-gray-400 focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                handleSendReply();
-              }
-            }}
-          />
-          <button
-            onClick={handleSendReply}
-            disabled={!replyText.trim() || sending}
-            className="flex h-10 w-10 items-center justify-center self-end rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-            title="Send reply (Cmd+Enter)"
-          >
-            {sending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
             )}
-          </button>
+          </div>
+        )}
+
+        {/* Reply composer */}
+        <div className="flex-shrink-0 border-t bg-white px-6 py-3">
+          <div className="flex gap-2">
+            <textarea
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              placeholder={`Reply to ${ticket.fromName || ticket.fromEmail}...`}
+              rows={3}
+              className="flex-1 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none transition-colors placeholder:text-gray-400 focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  handleSendReply();
+                }
+              }}
+            />
+            <button
+              onClick={handleSendReply}
+              disabled={!replyText.trim() || sending}
+              className="flex h-10 w-10 items-center justify-center self-end rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+              title="Send reply (Cmd+Enter)"
+            >
+              {sending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] text-gray-400">
+            Cmd+Enter to send
+            {ticket.language && ticket.language !== "en" && (
+              <>
+                {" "}
+                &middot; Ticket language:{" "}
+                <span className="font-medium">
+                  {getLanguageName(ticket.language)}
+                </span>
+              </>
+            )}
+          </p>
         </div>
-        <p className="mt-1 text-[11px] text-gray-400">
-          Cmd+Enter to send
-          {ticket.language && ticket.language !== "en" && (
-            <>
-              {" "}
-              &middot; Ticket language:{" "}
-              <span className="font-medium">
-                {getLanguageName(ticket.language)}
-              </span>
-            </>
-          )}
-        </p>
       </div>
+
+      {/* ── Right: enrichment panel ── */}
+      <EnrichmentPanel fromEmail={ticket.fromEmail} />
     </div>
   );
 }
@@ -394,9 +426,7 @@ function MessageBubble({ message }: { message: Message }) {
   const isInbound = message.direction === "INBOUND";
 
   return (
-    <div
-      className={cn("flex", isInbound ? "justify-start" : "justify-end")}
-    >
+    <div className={cn("flex", isInbound ? "justify-start" : "justify-end")}>
       <div
         className={cn(
           "max-w-[75%] rounded-2xl px-4 py-3",
@@ -405,7 +435,6 @@ function MessageBubble({ message }: { message: Message }) {
             : "bg-blue-600 text-white rounded-tr-sm"
         )}
       >
-        {/* Sender info */}
         <div
           className={cn(
             "mb-1 flex items-center gap-2 text-xs",
@@ -426,7 +455,6 @@ function MessageBubble({ message }: { message: Message }) {
           </span>
         </div>
 
-        {/* Body */}
         <div
           className={cn(
             "text-sm leading-relaxed whitespace-pre-wrap",

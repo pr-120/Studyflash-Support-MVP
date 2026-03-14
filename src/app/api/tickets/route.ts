@@ -16,6 +16,7 @@ const CreateTicketSchema = z.object({
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const status = searchParams.get("status");
+  const priority = searchParams.get("priority");
   const assignedToId = searchParams.get("assignedToId");
   const category = searchParams.get("category");
   const search = searchParams.get("search");
@@ -23,7 +24,12 @@ export async function GET(req: NextRequest) {
   const tickets = await prisma.ticket.findMany({
     where: {
       ...(status ? { status: status as any } : {}),
-      ...(assignedToId ? { assignedToId } : {}),
+      ...(priority ? { priority: priority as any } : {}),
+      ...(assignedToId === "unassigned"
+        ? { assignedToId: null }
+        : assignedToId
+          ? { assignedToId }
+          : {}),
       ...(category ? { category: category as any } : {}),
       ...(search
         ? {

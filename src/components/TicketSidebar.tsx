@@ -9,6 +9,11 @@ import { CATEGORY_LABELS } from "@/lib/utils";
 type StatusFilter = "" | "OPEN" | "IN_PROGRESS" | "WAITING" | "RESOLVED" | "CLOSED";
 type PriorityFilter = "" | "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
+interface TeamMemberOption {
+  id: string;
+  name: string;
+}
+
 export function TicketSidebar() {
   const router = useRouter();
   const params = useParams();
@@ -16,12 +21,22 @@ export function TicketSidebar() {
 
   const [tickets, setTickets] = useState<TicketListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [teamMembers, setTeamMembers] = useState<TeamMemberOption[]>([]);
 
   // Filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
+
+  // Fetch team members for the assignee filter
+  useEffect(() => {
+    fetch("/api/team")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setTeamMembers(data))
+      .catch(() => setTeamMembers([]));
+  }, []);
 
   const fetchTickets = useCallback(async () => {
     setLoading(true);
@@ -29,24 +44,20 @@ export function TicketSidebar() {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (statusFilter) params.set("status", statusFilter);
+      if (priorityFilter) params.set("priority", priorityFilter);
       if (categoryFilter) params.set("category", categoryFilter);
+      if (assigneeFilter) params.set("assignedToId", assigneeFilter);
 
       const res = await fetch(`/api/tickets?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch");
       const data: TicketListItem[] = await res.json();
-
-      // Client-side priority filter (API doesn't support it directly)
-      const filtered = priorityFilter
-        ? data.filter((t) => t.priority === priorityFilter)
-        : data;
-
-      setTickets(filtered);
+      setTickets(data);
     } catch {
       setTickets([]);
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, priorityFilter, categoryFilter]);
+  }, [search, statusFilter, priorityFilter, categoryFilter, assigneeFilter]);
 
   useEffect(() => {
     fetchTickets();
@@ -95,8 +106,8 @@ export function TicketSidebar() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-1.5 px-4 pb-3">
+      {/* Filters row 1 */}
+      <div className="flex gap-1.5 px-4 pb-1.5">
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
@@ -123,7 +134,10 @@ export function TicketSidebar() {
           <option value="MEDIUM">Medium</option>
           <option value="LOW">Low</option>
         </select>
+      </div>
 
+      {/* Filters row 2 */}
+      <div className="flex gap-1.5 px-4 pb-3">
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
@@ -133,6 +147,20 @@ export function TicketSidebar() {
           {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
             <option key={key} value={key}>
               {label}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={assigneeFilter}
+          onChange={(e) => setAssigneeFilter(e.target.value)}
+          className="filter-select flex-1 min-w-0"
+        >
+          <option value="">All Assignees</option>
+          <option value="unassigned">Unassigned</option>
+          {teamMembers.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
             </option>
           ))}
         </select>
