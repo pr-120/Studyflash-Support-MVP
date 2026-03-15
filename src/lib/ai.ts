@@ -21,6 +21,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { Category, Priority } from "@prisma/client";
 import { classifyTicket } from "./classify";
+import { getLanguageName } from "./utils";
 
 const MODEL = "claude-3-5-haiku-latest";
 
@@ -47,17 +48,18 @@ function templateSummary(
   language: string,
   category: Category
 ): string {
-  const langName =
-    language === "de" ? "German" :
-    language === "fr" ? "French" :
-    language === "nl" ? "Dutch" :
-    "English";
-
+  const langName = getLanguageName(language);
   const snippet = bodyText.replace(/\n/g, " ").slice(0, 100).trim();
   const catLabel = category.replace(/_/g, " ").toLowerCase();
   return `${langName}-speaking user (${catLabel}): "${snippet}..."`;
 }
 
+/**
+ * Template-based draft replies for when the LLM is unavailable.
+ * Covers DE, FR, NL, IT, ES, PT, EN explicitly.
+ * For any other language, falls back to English — the LLM path handles
+ * all languages natively via the language code in the prompt.
+ */
 function templateDraft(language: string, category: Category): string {
   const templates: Record<string, Record<string, string>> = {
     de: {
@@ -77,6 +79,18 @@ function templateDraft(language: string, category: Category): string {
     nl: {
       DEFAULT:
         "Beste,\n\nBedankt voor uw bericht. We hebben uw verzoek ontvangen en zullen zo snel mogelijk contact met u opnemen.\n\nMet vriendelijke groeten,\nHet Studyflash Support Team",
+    },
+    it: {
+      DEFAULT:
+        "Salve,\n\nGrazie per averci contattato. Abbiamo ricevuto il suo messaggio e le risponderemo il prima possibile.\n\nCordiali saluti,\nIl Team di Supporto Studyflash",
+    },
+    es: {
+      DEFAULT:
+        "Hola,\n\nGracias por contactarnos. Hemos recibido su mensaje y le responderemos lo antes posible.\n\nSaludos cordiales,\nEl Equipo de Soporte Studyflash",
+    },
+    pt: {
+      DEFAULT:
+        "Olá,\n\nObrigado por nos contactar. Recebemos a sua mensagem e responderemos o mais breve possível.\n\nCom os melhores cumprimentos,\nA Equipa de Suporte Studyflash",
     },
     en: {
       REFUND_REQUEST:

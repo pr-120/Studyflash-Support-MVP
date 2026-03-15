@@ -6,23 +6,12 @@
  */
 
 import { PrismaClient, Category, Priority, TicketStatus } from "@prisma/client";
-import { franc } from "franc";
+import { detectLanguage } from "../src/lib/classify";
+import { getLanguageName } from "../src/lib/utils";
 import * as fs from "fs";
 import * as path from "path";
 
 const prisma = new PrismaClient();
-
-/* ── Language detection using franc (same library as production code) ── */
-
-const ISO3_TO_ISO1: Record<string, string> = {
-  deu: "de", fra: "fr", eng: "en", nld: "nl",
-  ita: "it", spa: "es", por: "pt", swe: "sv", und: "en",
-};
-
-function detectLang(text: string): string {
-  const result = franc(text, { minLength: 10 });
-  return ISO3_TO_ISO1[result] ?? "en";
-}
 
 /* ── Tag → Category mapping ── */
 
@@ -192,7 +181,7 @@ function generateSummary(category: Category, body: string, language: string): st
     .slice(0, 80)
     .trim();
 
-  const langLabel = language === "de" ? "German" : language === "fr" ? "French" : language === "nl" ? "Dutch" : "English";
+  const langLabel = getLanguageName(language);
 
   const templates: Record<Category, string> = {
     REFUND_REQUEST: `${langLabel}-speaking user requests a refund. "${snippet}..."`,
@@ -309,7 +298,7 @@ async function main() {
 
     const priority = inferPriority(parsed.tags);
     const status = inferStatus(parsed.tags, i);
-    const language = detectLang(parsed.body);
+    const language = detectLanguage(parsed.body);
     const subject = extractSubject(parsed.body, parsed.ticketNumber);
     const { fromName, fromEmail } = extractSender(parsed.body);
     const assignedToId = assignTeamMember(category, teamIds);
