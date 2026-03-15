@@ -64,15 +64,29 @@ async function graphFetch(path: string, options: RequestInit = {}) {
     throw new Error(`Graph API error ${res.status}: ${error}`);
   }
 
-  if (res.status === 204) return null;
+  // Handle empty responses (204 No Content, 202 Accepted with empty body)
+  if (res.status === 204 || res.status === 202) {
+    const text = await res.text();
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+
   return res.json();
 }
 
 /**
  * Send a reply to an existing email thread.
- * First tries the Graph `reply` endpoint (stays in-thread).
- * If that fails (e.g., spam block on new tenants), falls back to `sendMail`
- * with proper SMTP threading headers to maintain thread parity.
+ *
+ * Strategy (in order of preference):
+ * 1. createReply → patch body → send: creates a draft reply (with proper
+ *    threading headers set by Graph automatically), updates the body with
+ *    our content, then sends it. Best thread parity.
+ * 2. reply endpoint: direct one-shot reply (simpler but returns empty body).
+ * 3. sendMail: last resort, no threading (creates a new conversation).
  */
 export async function sendReply(
   outlookMessageId: string,
@@ -85,9 +99,44 @@ export async function sendReply(
 ) {
   const mailbox = process.env.SUPPORT_MAILBOX!;
 
-  // Try in-thread reply first
+  // ── Strategy 1: createReply → patch → send (best threading) ──
   try {
-    return await graphFetch(
+    // Step 1: Create a draft reply (Graph sets In-Reply-To, References, conversationId automatically)
+    const draft = await graphFetch(
+      `/users/${mailbox}/messages/${outlookMessageId}/createReply`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      }
+    );
+
+    if (draft?.id) {
+      // Step 2: Update the draft body with our content
+      await graphFetch(`/users/${mailbox}/messages/${draft.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          body: {
+            contentType: "HTML",
+            content: replyBodyHtml,
+          },
+        }),
+      });
+
+      // Step 3: Send the draft
+      await graphFetch(`/users/${mailbox}/messages/${draft.id}/send`, {
+        method: "POST",
+      });
+
+      console.log("Reply sent via createReply → patch → send");
+      return null;
+    }
+  } catch (createReplyErr) {
+    console.warn("createReply failed, trying reply endpoint:", createReplyErr);
+  }
+
+  // ── Strategy 2: Direct reply endpoint ──
+  try {
+    const result = await graphFetch(
       `/users/${mailbox}/messages/${outlookMessageId}/reply`,
       {
         method: "POST",
@@ -102,39 +151,31 @@ export async function sendReply(
         }),
       }
     );
+    console.log("Reply sent via direct reply endpoint");
+    return result;
   } catch (replyErr) {
-    console.warn("Graph reply failed, trying sendMail fallback:", replyErr);
-
-    // Fallback: sendMail with SMTP threading headers.
-    // Note: conversationId is READ-ONLY in Graph — setting it is silently ignored.
-    // Instead, we use In-Reply-To and References headers which is how SMTP
-    // threading actually works. Both Outlook and Gmail respect these.
-    const message: Record<string, unknown> = {
-      subject: subject.startsWith("RE:") ? subject : `RE: ${subject}`,
-      body: {
-        contentType: "HTML",
-        content: replyBodyHtml,
-      },
-      toRecipients: [
-        {
-          emailAddress: { address: recipientEmail },
-        },
-      ],
-    };
-
-    // Set proper SMTP threading headers so mail clients thread correctly
-    if (internetMessageId) {
-      message.internetMessageHeaders = [
-        { name: "In-Reply-To", value: internetMessageId },
-        { name: "References", value: internetMessageId },
-      ];
-    }
-
-    return graphFetch(`/users/${mailbox}/sendMail`, {
-      method: "POST",
-      body: JSON.stringify({ message }),
-    });
+    console.warn("Reply endpoint failed, trying sendMail:", replyErr);
   }
+
+  // ── Strategy 3: sendMail (no threading, last resort) ──
+  const message: Record<string, unknown> = {
+    subject: subject.startsWith("RE:") ? subject : `RE: ${subject}`,
+    body: {
+      contentType: "HTML",
+      content: replyBodyHtml,
+    },
+    toRecipients: [
+      {
+        emailAddress: { address: recipientEmail },
+      },
+    ],
+  };
+
+  console.warn("Sending via sendMail (no thread parity)");
+  return graphFetch(`/users/${mailbox}/sendMail`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
 }
 
 /**
