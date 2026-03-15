@@ -136,7 +136,7 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
     try {
       const bodyHtml = replyText
         .split("\n")
-        .map((line) => `<p>${line || "&nbsp;"}</p>`)
+        .map((line) => (line.trim() ? `<p>${line}</p>` : "<br>"))
         .join("");
 
       const res = await fetch(`/api/tickets/${ticket.id}/reply`, {
