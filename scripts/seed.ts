@@ -6,10 +6,23 @@
  */
 
 import { PrismaClient, Category, Priority, TicketStatus } from "@prisma/client";
+import { franc } from "franc";
 import * as fs from "fs";
 import * as path from "path";
 
 const prisma = new PrismaClient();
+
+/* ── Language detection using franc (same library as production code) ── */
+
+const ISO3_TO_ISO1: Record<string, string> = {
+  deu: "de", fra: "fr", eng: "en", nld: "nl",
+  ita: "it", spa: "es", por: "pt", swe: "sv", und: "en",
+};
+
+function detectLang(text: string): string {
+  const result = franc(text, { minLength: 10 });
+  return ISO3_TO_ISO1[result] ?? "en";
+}
 
 /* ── Tag → Category mapping ── */
 
@@ -58,39 +71,7 @@ function inferStatus(tags: string[], index: number): TicketStatus {
   return "CLOSED";                   // 10% closed
 }
 
-/* ── Detect language from body text (simple heuristic) ── */
-
-function detectLanguage(text: string): string {
-  const lower = text.toLowerCase();
-
-  // Dutch markers
-  const dutchWords = ["ik ", "mijn", "hoe ", "niet", "kan ", "het ", "een ", "van ", "voor ", "maar", "heb ", "nog ", "abonnement", "gratis", "bedankt", "alvast", "annuleren", "betaling", "stoppen"];
-  const dutchScore = dutchWords.filter((w) => lower.includes(w)).length;
-
-  // French markers
-  const frenchWords = ["je ", "mon ", "bonjour", "merci", "pas ", "une ", "les ", "pour ", "est ", "vous", "remboursement", "abonnement", "annuler", "s'il", "pouvez"];
-  const frenchScore = frenchWords.filter((w) => lower.includes(w)).length;
-
-  // German markers
-  const germanWords = ["ich ", "mein", "hallo", "bitte", "kann ", "nicht", "das ", "ein ", "abo", "vielen", "danke", "kündigen", "mir ", "mich ", "wie ", "habe", "studyflash"];
-  const germanScore = germanWords.filter((w) => lower.includes(w)).length;
-
-  // English markers
-  const englishWords = ["i ", "my ", "the ", "is ", "can ", "please", "would", "have", "hello", "thank", "subscription", "cancel", "refund", "how ", "with"];
-  const englishScore = englishWords.filter((w) => lower.includes(w)).length;
-
-  const scores = [
-    { lang: "nl", score: dutchScore },
-    { lang: "fr", score: frenchScore },
-    { lang: "de", score: germanScore },
-    { lang: "en", score: englishScore },
-  ];
-
-  scores.sort((a, b) => b.score - a.score);
-
-  if (scores[0].score === 0) return "de"; // default — most tickets are German
-  return scores[0].lang;
-}
+/* ── Language detection uses franc (imported above) ── */
 
 /* ── Extract subject from body ── */
 
@@ -328,7 +309,7 @@ async function main() {
 
     const priority = inferPriority(parsed.tags);
     const status = inferStatus(parsed.tags, i);
-    const language = detectLanguage(parsed.body);
+    const language = detectLang(parsed.body);
     const subject = extractSubject(parsed.body, parsed.ticketNumber);
     const { fromName, fromEmail } = extractSender(parsed.body);
     const assignedToId = assignTeamMember(category, teamIds);

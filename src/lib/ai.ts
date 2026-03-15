@@ -1,117 +1,177 @@
 /**
- * AI Pipeline using Anthropic Claude
+ * AI Pipeline — hybrid approach
  *
- * Handles:
- * 1. Language detection
- * 2. Ticket categorization
- * 3. Priority assessment
- * 4. English summary (for non-English tickets)
- * 5. Suggested assignee
- * 6. Draft reply (in the user's language)
+ * Local classifiers (src/lib/classify.ts) handle:
+ *   - Language detection (franc library)
+ *   - Category classification (keyword rules)
+ *   - Priority assessment (keyword rules)
+ *   - Assignee suggestion (category mapping)
+ *
+ * This module handles the parts that genuinely need an LLM:
+ *   - English summary generation (understanding + translation)
+ *   - Draft reply in the user's language (creative generation)
+ *
+ * Uses Claude Haiku (30x cheaper than Opus) since summarization
+ * and reply drafting don't need the most powerful model.
+ *
+ * When ANTHROPIC_API_KEY is not set, returns template-based fallbacks
+ * so the app works fully without any API key.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
 import { Category, Priority } from "@prisma/client";
+import { classifyTicket } from "./classify";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const MODEL = "claude-3-5-haiku-latest";
 
-export interface TicketAnalysis {
-  language: string;           // ISO 639-1 code: "de", "fr", "en", etc.
-  summary: string;            // 1-2 sentence English summary
-  category: Category;
-  priority: Priority;
-  suggestedAssignee?: string; // team member name/role hint
-  aiDraft: string;            // reply draft in the user's original language
+function getClient(): Anthropic | null {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return null;
+  return new Anthropic({ apiKey: key });
 }
 
-const CATEGORY_DESCRIPTIONS: Record<Category, string> = {
-  BUG_REPORT: "User reports something broken or not working as expected",
-  REFUND_REQUEST: "User asks for money back or cancellation",
-  ACCOUNT_ISSUE: "Login, password, access, or account management problems",
-  FEATURE_REQUEST: "User asks for new functionality or improvements",
-  BILLING: "Subscription, payment, invoice questions (but not refund)",
-  CONTENT_QUESTION: "Questions about study content, cards, or learning material",
-  TECHNICAL_SUPPORT: "Technical help that doesn't fit bug report",
-  OTHER: "Doesn't fit any of the above categories",
-};
+export interface TicketAnalysis {
+  language: string;
+  summary: string;
+  category: Category;
+  priority: Priority;
+  suggestedAssignee?: string;
+  aiDraft: string;
+}
+
+/* ── Template-based fallbacks (no API key needed) ── */
+
+function templateSummary(
+  subject: string,
+  bodyText: string,
+  language: string,
+  category: Category
+): string {
+  const langName =
+    language === "de" ? "German" :
+    language === "fr" ? "French" :
+    language === "nl" ? "Dutch" :
+    "English";
+
+  const snippet = bodyText.replace(/\n/g, " ").slice(0, 100).trim();
+  const catLabel = category.replace(/_/g, " ").toLowerCase();
+  return `${langName}-speaking user (${catLabel}): "${snippet}..."`;
+}
+
+function templateDraft(language: string, category: Category): string {
+  const templates: Record<string, Record<string, string>> = {
+    de: {
+      REFUND_REQUEST:
+        "Guten Tag,\n\nvielen Dank für Ihre Nachricht bezüglich einer Rückerstattung. Wir haben Ihre Anfrage erhalten und werden diese innerhalb von 2-3 Werktagen bearbeiten.\n\nMit freundlichen Grüßen,\nDas Studyflash Support Team",
+      BILLING:
+        "Guten Tag,\n\nvielen Dank für Ihre Anfrage zu Ihrem Abonnement. Wir werden Ihr Anliegen so schnell wie möglich prüfen.\n\nMit freundlichen Grüßen,\nDas Studyflash Support Team",
+      DEFAULT:
+        "Guten Tag,\n\nvielen Dank für Ihre Nachricht. Wir haben Ihre Anfrage erhalten und werden uns so schnell wie möglich bei Ihnen melden.\n\nMit freundlichen Grüßen,\nDas Studyflash Support Team",
+    },
+    fr: {
+      REFUND_REQUEST:
+        "Bonjour,\n\nMerci de nous avoir contactés concernant un remboursement. Nous avons bien reçu votre demande et la traiterons dans les 2-3 jours ouvrables.\n\nCordialement,\nL'équipe Support Studyflash",
+      DEFAULT:
+        "Bonjour,\n\nMerci de nous avoir contactés. Nous avons bien reçu votre message et reviendrons vers vous dans les plus brefs délais.\n\nCordialement,\nL'équipe Support Studyflash",
+    },
+    nl: {
+      DEFAULT:
+        "Beste,\n\nBedankt voor uw bericht. We hebben uw verzoek ontvangen en zullen zo snel mogelijk contact met u opnemen.\n\nMet vriendelijke groeten,\nHet Studyflash Support Team",
+    },
+    en: {
+      REFUND_REQUEST:
+        "Hello,\n\nThank you for reaching out regarding a refund. We've received your request and will process it within 2-3 business days.\n\nBest regards,\nThe Studyflash Support Team",
+      DEFAULT:
+        "Hello,\n\nThank you for contacting us. We've received your message and will get back to you as soon as possible.\n\nBest regards,\nThe Studyflash Support Team",
+    },
+  };
+
+  const langTemplates = templates[language] || templates.en;
+  return langTemplates[category] || langTemplates.DEFAULT;
+}
+
+/* ── Main analysis function ── */
 
 export async function analyzeTicket(
   subject: string,
   bodyText: string
 ): Promise<TicketAnalysis> {
-  const categoryList = Object.entries(CATEGORY_DESCRIPTIONS)
-    .map(([k, v]) => `- ${k}: ${v}`)
-    .join("\n");
+  // Step 1: Local classifiers (instant, free)
+  const { language, category, priority, suggestedAssignee } =
+    classifyTicket(subject, bodyText);
 
-  const prompt = `You are an AI assistant for Studyflash customer support. Studyflash is a flashcard and study app.
+  // Step 2: LLM for summary + draft (if API key is available)
+  const client = getClient();
 
-Analyze this support ticket and respond with a JSON object only — no markdown, no explanation.
+  if (!client) {
+    // No API key — use template fallbacks
+    console.log("No ANTHROPIC_API_KEY set — using template-based analysis");
+    return {
+      language,
+      category,
+      priority,
+      suggestedAssignee,
+      summary: templateSummary(subject, bodyText, language, category),
+      aiDraft: templateDraft(language, category),
+    };
+  }
+
+  try {
+    const prompt = `You are a Studyflash customer support assistant. Studyflash is a flashcard and study app.
+
+Given this support ticket, provide two things:
 
 TICKET SUBJECT: ${subject}
 TICKET BODY:
 ${bodyText}
 
-Return exactly this JSON structure:
+Respond with ONLY a JSON object (no markdown, no explanation):
 {
-  "language": "<ISO 639-1 two-letter code>",
-  "summary": "<1-2 sentences in English summarizing the issue>",
-  "category": "<one of the category keys below>",
-  "priority": "<LOW | MEDIUM | HIGH | URGENT>",
-  "suggestedAssignee": "<optional: 'engineering' for bugs, 'billing' for refunds, 'support' for general>",
-  "aiDraft": "<a polite, helpful reply to the user in THEIR OWN LANGUAGE, referencing their specific issue>"
+  "summary": "<1-2 sentences in English summarizing the specific issue>",
+  "aiDraft": "<a polite, helpful reply in ${language.toUpperCase()} (the user's language), referencing their specific issue, signed off as The Studyflash Support Team, 2-4 paragraphs>"
 }
 
-Categories:
-${categoryList}
-
-Priority guidelines:
-- URGENT: Account completely inaccessible, payment charged but no access, data loss
-- HIGH: Core feature broken, billing error, user very frustrated
-- MEDIUM: Non-critical bug, general question
-- LOW: Feature request, minor cosmetic issue
-
-For the draft reply:
-- Write in the same language as the ticket
+For the draft:
+- Write in ${language.toUpperCase()} — this is the user's language
 - Be empathetic and specific to their issue
 - Don't promise things you can't guarantee
-- Sign off as "The Studyflash Support Team"
-- Keep it concise (2-4 paragraphs)`;
+- Keep it concise`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-opus-4-5",
-    max_tokens: 1024,
-    messages: [{ role: "user", content: prompt }],
-  });
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: 768,
+      messages: [{ role: "user", content: prompt }],
+    });
 
-  const text = response.content[0].type === "text" ? response.content[0].text : "";
-
-  try {
-    // Strip any accidental markdown fences
+    const text =
+      response.content[0].type === "text" ? response.content[0].text : "";
     const cleaned = text.replace(/```json\n?|\n?```/g, "").trim();
     const parsed = JSON.parse(cleaned);
 
     return {
-      language: parsed.language ?? "en",
-      summary: parsed.summary ?? subject,
-      category: (parsed.category as Category) ?? Category.OTHER,
-      priority: (parsed.priority as Priority) ?? Priority.MEDIUM,
-      suggestedAssignee: parsed.suggestedAssignee,
-      aiDraft: parsed.aiDraft ?? "",
+      language,
+      category,
+      priority,
+      suggestedAssignee,
+      summary: parsed.summary ?? templateSummary(subject, bodyText, language, category),
+      aiDraft: parsed.aiDraft ?? templateDraft(language, category),
     };
-  } catch {
-    console.error("Failed to parse AI response:", text);
+  } catch (err) {
+    console.error("LLM call failed, using template fallback:", err);
     return {
-      language: "en",
-      summary: subject,
-      category: Category.OTHER,
-      priority: Priority.MEDIUM,
-      aiDraft: "",
+      language,
+      category,
+      priority,
+      suggestedAssignee,
+      summary: templateSummary(subject, bodyText, language, category),
+      aiDraft: templateDraft(language, category),
     };
   }
 }
 
 /**
- * Regenerate a draft reply with optional custom instructions
+ * Regenerate a draft reply with optional custom instructions.
+ * This always requires an LLM — falls back to a message if no key.
  */
 export async function regenerateDraft(
   ticketSubject: string,
@@ -119,6 +179,12 @@ export async function regenerateDraft(
   language: string,
   customInstructions?: string
 ): Promise<string> {
+  const client = getClient();
+
+  if (!client) {
+    return templateDraft(language, "OTHER" as Category);
+  }
+
   const prompt = `You are a Studyflash customer support agent. Write a reply to this support ticket.
 
 ORIGINAL TICKET SUBJECT: ${ticketSubject}
@@ -133,8 +199,8 @@ Requirements:
 - Sign off as "The Studyflash Support Team"
 - Return ONLY the reply text, no JSON, no preamble`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-opus-4-5",
+  const response = await client.messages.create({
+    model: MODEL,
     max_tokens: 512,
     messages: [{ role: "user", content: prompt }],
   });
