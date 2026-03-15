@@ -3,12 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Search, Inbox, Loader2, LogOut } from "lucide-react";
+import {
+  Search,
+  Inbox,
+  Loader2,
+  LogOut,
+  RefreshCw,
+  ArrowDownUp,
+} from "lucide-react";
 import { TicketRow, type TicketListItem } from "@/components/TicketRow";
 import { CATEGORY_LABELS } from "@/lib/utils";
 
 type StatusFilter = "" | "OPEN" | "IN_PROGRESS" | "WAITING" | "RESOLVED" | "CLOSED";
 type PriorityFilter = "" | "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+type SortOption = "newest" | "oldest" | "priority" | "updated" | "status";
 
 interface TeamMemberOption {
   id: string;
@@ -24,6 +32,7 @@ export function TicketSidebar() {
   const [tickets, setTickets] = useState<TicketListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [teamMembers, setTeamMembers] = useState<TeamMemberOption[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -31,6 +40,7 @@ export function TicketSidebar() {
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
+  const [sortBy, setSortBy] = useState<SortOption>("newest");
 
   // Fetch team members for the assignee filter
   useEffect(() => {
@@ -49,6 +59,7 @@ export function TicketSidebar() {
       if (priorityFilter) params.set("priority", priorityFilter);
       if (categoryFilter) params.set("category", categoryFilter);
       if (assigneeFilter) params.set("assignedToId", assigneeFilter);
+      if (sortBy) params.set("sort", sortBy);
 
       const res = await fetch(`/api/tickets?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch");
@@ -58,8 +69,9 @@ export function TicketSidebar() {
       setTickets([]);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [search, statusFilter, priorityFilter, categoryFilter, assigneeFilter]);
+  }, [search, statusFilter, priorityFilter, categoryFilter, assigneeFilter, sortBy]);
 
   useEffect(() => {
     fetchTickets();
@@ -74,6 +86,11 @@ export function TicketSidebar() {
 
   function handleTicketClick(ticket: TicketListItem) {
     router.push(`/tickets/${ticket.id}`);
+  }
+
+  function handleRefresh() {
+    setRefreshing(true);
+    fetchTickets();
   }
 
   const openCount = tickets.filter((t) => t.status === "OPEN").length;
@@ -92,6 +109,16 @@ export function TicketSidebar() {
             </span>
           )}
         </div>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50"
+          title="Refresh tickets"
+        >
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+          />
+        </button>
       </div>
 
       {/* Search */}
@@ -108,8 +135,20 @@ export function TicketSidebar() {
         </div>
       </div>
 
-      {/* Filters row 1 */}
+      {/* Sort + Filters row 1 */}
       <div className="flex gap-1.5 px-4 pb-1.5">
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as SortOption)}
+          className="filter-select flex-1 min-w-0"
+        >
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="priority">Priority</option>
+          <option value="updated">Recently Updated</option>
+          <option value="status">Status</option>
+        </select>
+
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
@@ -122,7 +161,10 @@ export function TicketSidebar() {
           <option value="RESOLVED">Resolved</option>
           <option value="CLOSED">Closed</option>
         </select>
+      </div>
 
+      {/* Filters row 2 */}
+      <div className="flex gap-1.5 px-4 pb-1.5">
         <select
           value={priorityFilter}
           onChange={(e) =>
@@ -136,10 +178,7 @@ export function TicketSidebar() {
           <option value="MEDIUM">Medium</option>
           <option value="LOW">Low</option>
         </select>
-      </div>
 
-      {/* Filters row 2 */}
-      <div className="flex gap-1.5 px-4 pb-3">
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
@@ -152,7 +191,10 @@ export function TicketSidebar() {
             </option>
           ))}
         </select>
+      </div>
 
+      {/* Filters row 3 */}
+      <div className="flex gap-1.5 px-4 pb-3">
         <select
           value={assigneeFilter}
           onChange={(e) => setAssigneeFilter(e.target.value)}
@@ -170,7 +212,7 @@ export function TicketSidebar() {
 
       {/* Ticket list */}
       <div className="flex-1 overflow-y-auto sidebar-scroll">
-        {loading ? (
+        {loading && !refreshing ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-5 w-5 animate-spin text-white/40" />
           </div>

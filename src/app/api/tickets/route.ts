@@ -24,6 +24,29 @@ export async function GET(req: NextRequest) {
   const assignedToId = searchParams.get("assignedToId");
   const category = searchParams.get("category");
   const search = searchParams.get("search");
+  const sort = searchParams.get("sort");
+
+  // Determine sort order
+  type OrderBy = Record<string, "asc" | "desc">;
+  let orderBy: OrderBy[] = [{ createdAt: "desc" }]; // default: newest first
+
+  switch (sort) {
+    case "oldest":
+      orderBy = [{ createdAt: "asc" }];
+      break;
+    case "newest":
+      orderBy = [{ createdAt: "desc" }];
+      break;
+    case "priority":
+      orderBy = [{ priority: "desc" }, { createdAt: "desc" }];
+      break;
+    case "updated":
+      orderBy = [{ updatedAt: "desc" }];
+      break;
+    case "status":
+      orderBy = [{ status: "asc" }, { createdAt: "desc" }];
+      break;
+  }
 
   const tickets = await prisma.ticket.findMany({
     where: {
@@ -49,10 +72,7 @@ export async function GET(req: NextRequest) {
       assignedTo: { select: { id: true, name: true, avatar: true } },
       _count: { select: { messages: true } },
     },
-    orderBy: [
-      { priority: "desc" },
-      { createdAt: "desc" },
-    ],
+    orderBy,
     take: 100,
   });
 
