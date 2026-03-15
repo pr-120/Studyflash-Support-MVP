@@ -1,9 +1,30 @@
 "use client";
 
-import { signIn } from "next-auth/react";
-import { Headphones } from "lucide-react";
+import { useEffect } from "react";
+import { signIn, useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { Headphones, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  // If already authenticated, redirect to home
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.replace("/");
+    }
+  }, [status, router]);
+
+  // Show loading while checking session (prevents flash of login page)
+  if (status === "loading" || status === "authenticated") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0f0f0f]">
+        <Loader2 className="h-8 w-8 animate-spin text-white/30" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#0f0f0f]">
       <div className="w-full max-w-sm rounded-xl bg-white/5 p-8 shadow-2xl border border-white/10">

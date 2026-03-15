@@ -53,7 +53,11 @@ async function translateWithLibre(
   if (!LT_URL) return null;
 
   const langs = await getLibreTranslateLanguages();
-  if (!langs.has(source) || !langs.has(target)) return null;
+  if (!langs.has(target)) return null;
+
+  // If the source language isn't supported by LibreTranslate (e.g., franc
+  // misdetected "sc" for Scots), use LibreTranslate's auto-detection instead.
+  const effectiveSource = langs.has(source) ? source : "auto";
 
   try {
     const res = await fetch(`${LT_URL}/translate`, {
@@ -61,7 +65,7 @@ async function translateWithLibre(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         q: text,
-        source,
+        source: effectiveSource,
         target,
         format: "text",
       }),
@@ -74,7 +78,17 @@ async function translateWithLibre(
     }
 
     const data = await res.json();
-    return data.translatedText ?? null;
+    const translated = data.translatedText ?? null;
+
+    // Guard: if LibreTranslate returned the exact same text, it likely
+    // failed to detect the source language or the text was already in
+    // the target language. Return null to fall through to Claude.
+    if (translated && translated.trim() === text.trim()) {
+      console.warn("LibreTranslate returned identical text, falling back");
+      return null;
+    }
+
+    return translated;
   } catch (err) {
     console.warn("LibreTranslate failed:", err);
     return null;

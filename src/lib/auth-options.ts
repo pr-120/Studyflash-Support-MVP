@@ -1,5 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import AzureADProvider from "next-auth/providers/azure-ad";
+import { prisma } from "@/lib/prisma";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -31,6 +32,27 @@ export const authOptions: NextAuthOptions = {
         session.user.name = token.name as string;
       }
       return session;
+    },
+    async signIn({ user, profile }) {
+      // Auto-create a TeamMember record when a user signs in via Azure AD,
+      // so they appear in the assignee dropdown immediately.
+      if (user.email) {
+        try {
+          await prisma.teamMember.upsert({
+            where: { email: user.email },
+            update: { name: user.name ?? user.email },
+            create: {
+              email: user.email,
+              name: user.name ?? user.email,
+              role: "support",
+            },
+          });
+        } catch (err) {
+          // Non-fatal — don't block sign-in if DB upsert fails
+          console.error("Failed to upsert TeamMember on sign-in:", err);
+        }
+      }
+      return true;
     },
   },
 };
