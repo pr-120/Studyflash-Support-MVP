@@ -3,5 +3,11 @@ node_modules
 .git
 .env
 .env.local
+.env.*.local
 .DS_Store
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md
+CLAUDE.md
 tickets/__MACOSX

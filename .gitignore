@@ -39,3 +39,4 @@ prisma/migrations/
 
 # macOS artifacts in ticket data
 tickets/__MACOSX/
+.*.swp
