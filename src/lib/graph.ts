@@ -72,7 +72,7 @@ async function graphFetch(path: string, options: RequestInit = {}) {
  * Send a reply to an existing email thread.
  * First tries the Graph `reply` endpoint (stays in-thread).
  * If that fails (e.g., spam block on new tenants), falls back to `sendMail`
- * with the conversationId preserved to maintain thread parity.
+ * with proper SMTP threading headers to maintain thread parity.
  */
 export async function sendReply(
   outlookMessageId: string,
@@ -80,6 +80,7 @@ export async function sendReply(
   recipientEmail: string,
   subject: string,
   conversationId?: string | null,
+  internetMessageId?: string | null,
   comment?: string
 ) {
   const mailbox = process.env.SUPPORT_MAILBOX!;
@@ -104,9 +105,10 @@ export async function sendReply(
   } catch (replyErr) {
     console.warn("Graph reply failed, trying sendMail fallback:", replyErr);
 
-    // Fallback: sendMail with conversationId to preserve thread parity.
-    // Including conversationId tells Graph to place this email in the
-    // same conversation thread, even though it's sent via sendMail.
+    // Fallback: sendMail with SMTP threading headers.
+    // Note: conversationId is READ-ONLY in Graph — setting it is silently ignored.
+    // Instead, we use In-Reply-To and References headers which is how SMTP
+    // threading actually works. Both Outlook and Gmail respect these.
     const message: Record<string, unknown> = {
       subject: subject.startsWith("RE:") ? subject : `RE: ${subject}`,
       body: {
@@ -120,9 +122,12 @@ export async function sendReply(
       ],
     };
 
-    // Preserve the conversation thread if we have the ID
-    if (conversationId) {
-      message.conversationId = conversationId;
+    // Set proper SMTP threading headers so mail clients thread correctly
+    if (internetMessageId) {
+      message.internetMessageHeaders = [
+        { name: "In-Reply-To", value: internetMessageId },
+        { name: "References", value: internetMessageId },
+      ];
     }
 
     return graphFetch(`/users/${mailbox}/sendMail`, {
@@ -163,10 +168,12 @@ export async function renewWebhookSubscription(subscriptionId: string) {
 
 /**
  * Fetch full message content by ID from the shared mailbox.
+ * Includes internetMessageId (for SMTP threading) and internetMessageHeaders
+ * (for detecting auto-replies, bounces, etc.).
  */
 export async function getMessage(messageId: string) {
   const mailbox = process.env.SUPPORT_MAILBOX!;
   return graphFetch(
-    `/users/${mailbox}/messages/${messageId}?$select=id,subject,from,body,conversationId,receivedDateTime`
+    `/users/${mailbox}/messages/${messageId}?$select=id,subject,from,body,conversationId,internetMessageId,internetMessageHeaders,receivedDateTime`
   );
 }

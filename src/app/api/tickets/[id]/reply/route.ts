@@ -38,7 +38,8 @@ export async function POST(
         bodyHtml,
         ticket.fromEmail,
         ticket.subject,
-        ticket.outlookThreadId // conversationId for sendMail fallback
+        ticket.outlookThreadId, // conversationId (read-only, for reference)
+        ticket.internetMessageId // SMTP Message-ID for In-Reply-To/References in fallback
       );
       emailSent = true;
     } catch (err) {

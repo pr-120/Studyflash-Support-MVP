@@ -18,6 +18,7 @@ model Ticket {
   bodyHtml       String?
   outlookThreadId String?       @unique
   outlookMessageId String?      @unique
+  internetMessageId String?     // SMTP Message-ID for threading (In-Reply-To/References)
   status         TicketStatus   @default(OPEN)
   priority       Priority       @default(MEDIUM)
   category       Category?
