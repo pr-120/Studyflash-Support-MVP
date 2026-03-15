@@ -79,7 +79,7 @@ export function TicketSidebar() {
   const openCount = tickets.filter((t) => t.status === "OPEN").length;
 
   return (
-    <aside className="flex w-[380px] flex-shrink-0 flex-col bg-[#0f0f0f]">
+    <aside className="flex h-full w-full flex-col bg-[#0f0f0f]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
         <div className="flex items-center gap-2">

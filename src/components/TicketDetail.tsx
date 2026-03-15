@@ -13,7 +13,10 @@ import {
   Clock,
   AlertTriangle,
   Languages,
+  PanelRightOpen,
+  PanelRightClose,
 } from "lucide-react";
+import { ResizeHandle } from "./ResizeHandle";
 import { cn, formatRelativeTime, getLanguageName } from "@/lib/utils";
 import {
   CategoryBadge,
@@ -93,6 +96,10 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
 
   // Translation — reply composer (to customer's language)
   const [translatingReply, setTranslatingReply] = useState(false);
+
+  // Enrichment panel
+  const [showEnrichment, setShowEnrichment] = useState(true);
+  const [enrichmentWidth, setEnrichmentWidth] = useState(280);
 
   const fetchTicket = useCallback(async () => {
     setLoading(true);
@@ -592,8 +599,38 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
         </div>
       </div>
 
-      {/* ── Right: enrichment panel ── */}
-      <EnrichmentPanel fromEmail={ticket.fromEmail} />
+      {/* ── Enrichment toggle button (always visible) ── */}
+      {!showEnrichment && (
+        <button
+          onClick={() => setShowEnrichment(true)}
+          className="flex-shrink-0 flex items-center justify-center w-8 border-l bg-white text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors"
+          title="Show enrichment panel"
+        >
+          <PanelRightOpen className="h-4 w-4" />
+        </button>
+      )}
+
+      {/* ── Right: enrichment panel (collapsible + resizable) ── */}
+      {showEnrichment && (
+        <>
+          <ResizeHandle
+            onResize={(delta) =>
+              setEnrichmentWidth((w) => Math.max(200, Math.min(500, w - delta)))
+            }
+          />
+          <div className="relative flex-shrink-0" style={{ width: enrichmentWidth }}>
+            {/* Close button */}
+            <button
+              onClick={() => setShowEnrichment(false)}
+              className="absolute top-3 right-3 z-10 flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              title="Hide enrichment panel"
+            >
+              <PanelRightClose className="h-3.5 w-3.5" />
+            </button>
+            <EnrichmentPanel fromEmail={ticket.fromEmail} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

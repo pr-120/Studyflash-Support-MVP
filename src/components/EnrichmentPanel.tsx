@@ -122,7 +122,7 @@ export function EnrichmentPanel({ fromEmail }: EnrichmentPanelProps) {
   const anyConfigured = data?.sentry || data?.posthog || data?.database;
 
   return (
-    <aside className="flex w-[280px] flex-shrink-0 flex-col border-l bg-white overflow-y-auto">
+    <aside className="flex h-full w-full flex-col border-l bg-white overflow-y-auto">
       <div className="px-4 pt-4 pb-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">
           Enrichment
