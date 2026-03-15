@@ -21,18 +21,12 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
+      # Override DB URLs to point to the Docker Postgres container
       DATABASE_URL: "postgresql://studyflash:studyflash@db:5432/studyflash_support"
       DIRECT_URL: "postgresql://studyflash:studyflash@db:5432/studyflash_support"
-      # MS Graph API (optional — fill in for Outlook integration)
-      AZURE_CLIENT_ID: ""
-      AZURE_CLIENT_SECRET: ""
-      AZURE_TENANT_ID: ""
-      SUPPORT_MAILBOX: "support@studyflash.ch"
-      # Anthropic (optional — fill in for AI features)
-      ANTHROPIC_API_KEY: ""
-      # Webhook
-      GRAPH_WEBHOOK_SECRET: "dev-secret"
     depends_on:
       db:
         condition: service_healthy

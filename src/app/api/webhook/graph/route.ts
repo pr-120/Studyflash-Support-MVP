@@ -12,11 +12,13 @@ import { prisma } from "@/lib/prisma";
 import { getMessage } from "@/lib/graph";
 import { analyzeTicket } from "@/lib/ai";
 
-// Graph requires validation token echoed back as plain text
+// Graph sends validation as either GET or POST with ?validationToken=...
+// Must echo the token back as plain text with 200 OK.
 export async function GET(req: NextRequest) {
   const validationToken = req.nextUrl.searchParams.get("validationToken");
   if (validationToken) {
-    return new NextResponse(decodeURIComponent(validationToken), {
+    return new NextResponse(validationToken, {
+      status: 200,
       headers: { "Content-Type": "text/plain" },
     });
   }
@@ -24,7 +26,17 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  // Graph may send validation via POST with validationToken in query string
+  const validationToken = req.nextUrl.searchParams.get("validationToken");
+  if (validationToken) {
+    return new NextResponse(validationToken, {
+      status: 200,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
+
+  // Parse the notification body (safe against empty/malformed JSON)
+  const body = await req.json().catch(() => ({}));
 
   // Validate the clientState secret
   const notifications = body?.value ?? [];
