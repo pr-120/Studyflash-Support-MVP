@@ -16,6 +16,23 @@ services:
       timeout: 5s
       retries: 10
 
+  translate:
+    image: libretranslate/libretranslate:latest
+    restart: unless-stopped
+    environment:
+      # Only load the languages we need to keep memory/startup reasonable
+      LT_LOAD_ONLY: "en,de,fr,nl,it,es,pt"
+    ports:
+      - "5000:5000"
+    volumes:
+      - lt-models:/home/libretranslate/.local
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5000/languages"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
   app:
     build: .
     restart: unless-stopped
@@ -27,9 +44,12 @@ services:
       # Override DB URLs to point to the Docker Postgres container
       DATABASE_URL: "postgresql://studyflash:studyflash@db:5432/studyflash_support"
       DIRECT_URL: "postgresql://studyflash:studyflash@db:5432/studyflash_support"
+      # LibreTranslate URL (Docker service name resolves internally)
+      LIBRETRANSLATE_URL: "http://translate:5000"
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   pgdata:
+  lt-models:

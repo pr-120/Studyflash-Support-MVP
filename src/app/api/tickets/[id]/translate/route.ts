@@ -1,31 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import Anthropic from "@anthropic-ai/sdk";
+import { translateBatch } from "@/lib/translate";
 
 /**
  * POST /api/tickets/[id]/translate
  *
- * Translates the ticket's message text to English (or a specified target language).
- * Uses Claude Haiku for fast, cheap translation.
+ * Translates the ticket's inbound messages to a target language.
+ *
+ * Translation priority:
+ * 1. LibreTranslate (self-hosted, free, unlimited) — if running
+ * 2. Claude Haiku (paid fallback) — if ANTHROPIC_API_KEY is set
+ * 3. Returns original text unchanged
  *
  * Body: { "messageId"?: string, "targetLanguage"?: string }
- * - messageId: specific message to translate (defaults to all inbound messages)
- * - targetLanguage: ISO 639-1 code (defaults to "en")
- *
- * Returns: { translations: [{ messageId, original, translated }] }
+ * Returns: { translations: [{ messageId, original, translated, engine }] }
  */
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Translation requires ANTHROPIC_API_KEY" },
-      { status: 503 }
-    );
-  }
-
   const ticket = await prisma.ticket.findUnique({
     where: { id: params.id },
     include: { messages: { orderBy: { sentAt: "asc" } } },
@@ -38,14 +31,16 @@ export async function POST(
   const body = await req.json().catch(() => ({}));
   const targetLanguage = body.targetLanguage ?? "en";
   const messageId = body.messageId;
+  const sourceLanguage = ticket.language ?? "auto";
 
   // If ticket is already in the target language, return as-is
-  if (ticket.language === targetLanguage) {
+  if (sourceLanguage === targetLanguage) {
     return NextResponse.json({
       translations: ticket.messages.map((m) => ({
         messageId: m.id,
         original: m.bodyText,
         translated: m.bodyText,
+        engine: "none",
       })),
     });
   }
@@ -59,41 +54,18 @@ export async function POST(
     return NextResponse.json({ translations: [] });
   }
 
-  const anthropic = new Anthropic({ apiKey });
-
-  // Batch all messages into a single LLM call for efficiency
-  const textsToTranslate = messages
-    .map((m, i) => `[MSG ${i + 1}]\n${m.bodyText}`)
-    .join("\n\n---\n\n");
-
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 2048,
-      messages: [
-        {
-          role: "user",
-          content: `Translate the following support ticket messages to ${targetLanguage}. 
-Preserve the message separators [MSG 1], [MSG 2], etc.
-Return ONLY the translations, no commentary.
+    const results = await translateBatch(
+      messages.map((m) => ({ id: m.id, text: m.bodyText })),
+      sourceLanguage,
+      targetLanguage
+    );
 
-${textsToTranslate}`,
-        },
-      ],
-    });
-
-    const translatedText =
-      response.content[0].type === "text" ? response.content[0].text : "";
-
-    // Parse the response back into individual message translations
-    const translatedParts = translatedText
-      .split(/\[MSG \d+\]\n?/)
-      .filter((p) => p.trim());
-
-    const translations = messages.map((m, i) => ({
-      messageId: m.id,
-      original: m.bodyText,
-      translated: translatedParts[i]?.replace(/^---\n?/, "").trim() ?? m.bodyText,
+    const translations = results.map((r) => ({
+      messageId: r.id,
+      original: r.original,
+      translated: r.translated,
+      engine: r.engine,
     }));
 
     return NextResponse.json({ translations });
