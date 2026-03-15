@@ -80,12 +80,19 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
   // Field editing
   const [updatingField, setUpdatingField] = useState<string | null>(null);
 
-  // Translation
+  // Translation — inbound messages
   const [translations, setTranslations] = useState<
     Record<string, string>
   >({});
   const [translating, setTranslating] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
+
+  // Translation — AI draft (to English for agent understanding)
+  const [draftTranslation, setDraftTranslation] = useState<string | null>(null);
+  const [translatingDraft, setTranslatingDraft] = useState(false);
+
+  // Translation — reply composer (to customer's language)
+  const [translatingReply, setTranslatingReply] = useState(false);
 
   const fetchTicket = useCallback(async () => {
     setLoading(true);
@@ -196,6 +203,57 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
       console.error("Translation failed:", err);
     } finally {
       setTranslating(false);
+    }
+  }
+
+  async function handleTranslateDraft() {
+    if (!ticket?.aiDraft || !ticket.language || translatingDraft) return;
+    if (draftTranslation) {
+      // Toggle — clear to show original
+      setDraftTranslation(null);
+      return;
+    }
+    setTranslatingDraft(true);
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: ticket.aiDraft,
+          source: ticket.language,
+          target: "en",
+        }),
+      });
+      if (!res.ok) throw new Error("Translation failed");
+      const data = await res.json();
+      setDraftTranslation(data.translated);
+    } catch (err) {
+      console.error("Draft translation failed:", err);
+    } finally {
+      setTranslatingDraft(false);
+    }
+  }
+
+  async function handleTranslateReply() {
+    if (!ticket?.language || !replyText.trim() || translatingReply) return;
+    setTranslatingReply(true);
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: replyText,
+          source: "en",
+          target: ticket.language,
+        }),
+      });
+      if (!res.ok) throw new Error("Translation failed");
+      const data = await res.json();
+      setReplyText(data.translated);
+    } catch (err) {
+      console.error("Reply translation failed:", err);
+    } finally {
+      setTranslatingReply(false);
     }
   }
 
@@ -394,9 +452,23 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
 
             {showAiDraft && (
               <div className="px-6 pb-3">
+                {/* Draft text — original */}
                 <div className="rounded-lg border border-blue-200 bg-white p-3 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
                   {ticket.aiDraft}
                 </div>
+
+                {/* Draft translation (English) — shown below original when toggled */}
+                {draftTranslation && (
+                  <div className="mt-2 rounded-lg border border-green-200 bg-green-50/50 p-3 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                    <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-green-700">
+                      <Languages className="h-3 w-3" />
+                      English translation
+                    </div>
+                    {draftTranslation}
+                  </div>
+                )}
+
+                {/* Action buttons */}
                 <div className="mt-2 flex items-center gap-2">
                   <button
                     onClick={handleUseAiDraft}
@@ -404,6 +476,28 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
                   >
                     Use this draft
                   </button>
+
+                  {/* Translate draft to English */}
+                  {ticket.language && ticket.language !== "en" && (
+                    <button
+                      onClick={handleTranslateDraft}
+                      disabled={translatingDraft}
+                      className={cn(
+                        "flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs transition-colors",
+                        draftTranslation
+                          ? "border-green-300 bg-green-50 text-green-700"
+                          : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                      )}
+                    >
+                      {translatingDraft ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Languages className="h-3 w-3" />
+                      )}
+                      {draftTranslation ? "Hide translation" : "Show in English"}
+                    </button>
+                  )}
+
                   <div className="flex flex-1 items-center gap-1.5">
                     <input
                       type="text"
@@ -449,18 +543,35 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
                 }
               }}
             />
-            <button
-              onClick={handleSendReply}
-              disabled={!replyText.trim() || sending}
-              className="flex h-10 w-10 items-center justify-center self-end rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-              title="Send reply (Cmd+Enter)"
-            >
-              {sending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4" />
+            <div className="flex flex-col gap-1 self-end">
+              {/* Translate reply to customer's language */}
+              {ticket.language && ticket.language !== "en" && replyText.trim() && (
+                <button
+                  onClick={handleTranslateReply}
+                  disabled={translatingReply}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:opacity-50"
+                  title={`Translate to ${getLanguageName(ticket.language)}`}
+                >
+                  {translatingReply ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Languages className="h-4 w-4" />
+                  )}
+                </button>
               )}
-            </button>
+              <button
+                onClick={handleSendReply}
+                disabled={!replyText.trim() || sending}
+                className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                title="Send reply (Cmd+Enter)"
+              >
+                {sending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </button>
+            </div>
           </div>
           <p className="mt-1 text-[11px] text-gray-400">
             Cmd+Enter to send
@@ -471,6 +582,10 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
                 <span className="font-medium">
                   {getLanguageName(ticket.language)}
                 </span>
+                {" "}
+                &middot;{" "}
+                <Languages className="inline h-3 w-3" />{" "}
+                translates your reply before sending
               </>
             )}
           </p>
