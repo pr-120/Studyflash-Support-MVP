@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
 
 const UpdateTicketSchema = z.object({
@@ -18,6 +19,9 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   const ticket = await prisma.ticket.findUnique({
     where: { id: params.id },
     include: {
@@ -37,6 +41,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   const body = await req.json();
   const data = UpdateTicketSchema.parse(body);
 
@@ -53,6 +60,9 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   await prisma.ticket.delete({ where: { id: params.id } });
   return new NextResponse(null, { status: 204 });
 }

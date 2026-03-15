@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createWebhookSubscription } from "@/lib/graph";
+import { requireAuth } from "@/lib/auth";
 
 /**
  * POST /api/webhook/setup
@@ -10,6 +11,9 @@ import { createWebhookSubscription } from "@/lib/graph";
  * Body: { "notificationUrl": "https://your-domain.com/api/webhook/graph" }
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const body = await req.json().catch(() => ({}));
     const notificationUrl =

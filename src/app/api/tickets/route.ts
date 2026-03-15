@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { analyzeTicket } from "@/lib/ai";
+import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
 
 const CreateTicketSchema = z.object({
@@ -14,6 +15,9 @@ const CreateTicketSchema = z.object({
 });
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   const { searchParams } = req.nextUrl;
   const status = searchParams.get("status");
   const priority = searchParams.get("priority");
@@ -57,6 +61,9 @@ export async function GET(req: NextRequest) {
 
 // Manual ticket creation (for testing / importing without Outlook)
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   const body = await req.json();
   const parsed = CreateTicketSchema.parse(body);
 

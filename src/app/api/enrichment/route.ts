@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { enrichUser } from "@/lib/enrichment";
+import { requireAuth } from "@/lib/auth";
 
 /**
  * GET /api/enrichment?email=user@example.com
@@ -8,6 +9,9 @@ import { enrichUser } from "@/lib/enrichment";
  * Returns whatever is available — null sections mean the service is not configured.
  */
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   const email = req.nextUrl.searchParams.get("email");
 
   if (!email) {

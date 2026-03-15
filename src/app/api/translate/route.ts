@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { translateText } from "@/lib/translate";
+import { requireAuth } from "@/lib/auth";
 
 /**
  * POST /api/translate
@@ -11,6 +12,9 @@ import { translateText } from "@/lib/translate";
  * Returns: { "translated": string, "engine": string }
  */
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   const body = await req.json().catch(() => ({}));
   const { text, source, target } = body;
 

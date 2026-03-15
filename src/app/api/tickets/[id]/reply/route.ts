@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendReply } from "@/lib/graph";
+import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
 
 const SendReplySchema = z.object({
@@ -12,6 +13,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   const ticket = await prisma.ticket.findUnique({
     where: { id: params.id },
     include: { messages: { orderBy: { sentAt: "asc" }, take: 1 } },

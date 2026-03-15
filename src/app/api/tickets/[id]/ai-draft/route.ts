@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { regenerateDraft } from "@/lib/ai";
+import { requireAuth } from "@/lib/auth";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   const ticket = await prisma.ticket.findUnique({ where: { id: params.id } });
   if (!ticket) return NextResponse.json({ error: "Not found" }, { status: 404 });
 

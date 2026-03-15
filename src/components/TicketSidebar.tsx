@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { Search, Inbox, Loader2 } from "lucide-react";
+import { useSession, signOut } from "next-auth/react";
+import { Search, Inbox, Loader2, LogOut } from "lucide-react";
 import { TicketRow, type TicketListItem } from "@/components/TicketRow";
 import { CATEGORY_LABELS } from "@/lib/utils";
 
@@ -17,6 +18,7 @@ interface TeamMemberOption {
 export function TicketSidebar() {
   const router = useRouter();
   const params = useParams();
+  const { data: session } = useSession();
   const selectedId = (params?.id as string) ?? null;
 
   const [tickets, setTickets] = useState<TicketListItem[]>([]);
@@ -189,11 +191,35 @@ export function TicketSidebar() {
         )}
       </div>
 
-      {/* Footer */}
-      <div className="border-t border-[hsl(var(--sidebar-border))] px-4 py-2">
-        <p className="text-[11px] text-[hsl(var(--sidebar-muted-foreground))]">
-          {tickets.length} ticket{tickets.length !== 1 ? "s" : ""}
-        </p>
+      {/* Footer — user info + sign out */}
+      <div className="border-t border-[hsl(var(--sidebar-border))] px-4 py-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+              {session?.user?.name
+                ?.split(" ")
+                .map((n) => n[0])
+                .join("")
+                .slice(0, 2)
+                .toUpperCase() ?? "?"}
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-white truncate">
+                {session?.user?.name ?? "Unknown"}
+              </p>
+              <p className="text-[10px] text-[hsl(var(--sidebar-muted-foreground))] truncate">
+                {tickets.length} ticket{tickets.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+            title="Sign out"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </aside>
   );

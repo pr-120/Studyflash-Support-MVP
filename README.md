@@ -11,10 +11,11 @@ Built with **Next.js 14**, **Prisma** (PostgreSQL), **Microsoft Graph API** (Out
 - [Quick Start (Demo)](#quick-start-demo)
 - [Setup Guide](#setup-guide)
   - [1. Connecting Outlook](#1-connecting-outlook)
-  - [2. Exposing the App (Webhook Requirement)](#2-exposing-the-app-webhook-requirement)
-  - [3. Registering the Webhook](#3-registering-the-webhook)
-  - [4. Enabling AI Features](#4-enabling-ai-features)
-  - [5. Configuring Enrichment](#5-configuring-enrichment)
+  - [2. Authentication](#2-authentication)
+  - [3. Exposing the App (Webhook Requirement)](#3-exposing-the-app-webhook-requirement)
+  - [4. Registering the Webhook](#4-registering-the-webhook)
+  - [5. Enabling AI Features](#5-enabling-ai-features)
+  - [6. Configuring Enrichment](#6-configuring-enrichment)
 - [Manual Setup (Without Docker)](#manual-setup-without-docker)
 - [Architecture](#architecture)
 - [Features](#features)
@@ -116,7 +117,56 @@ docker compose down && docker compose up -d
 
 ---
 
-### 2. Exposing the App (Webhook Requirement)
+### 2. Authentication
+
+The platform uses **NextAuth.js with Azure AD** to restrict access to authorized team members. Users sign in with their Microsoft 365 accounts — the same accounts used for Outlook.
+
+#### a. Add a redirect URI to your Azure App Registration
+
+1. Go to [portal.azure.com](https://portal.azure.com) → your app registration
+2. Click **Authentication** → **Add a platform** → **Web**
+3. Set Redirect URI to: `http://localhost:3000/api/auth/callback/azure-ad`
+4. Under **Implicit grant and hybrid flows**, check **ID tokens**
+5. Click **Save**
+
+> For production: replace `localhost:3000` with your real domain.
+
+#### b. Generate a NextAuth secret
+
+```bash
+openssl rand -base64 32
+```
+
+#### c. Update your `.env`
+
+```env
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="the-output-from-the-command-above"
+```
+
+The `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, and `AZURE_TENANT_ID` from step 1 are reused — no additional Azure credentials needed.
+
+#### d. Restart the app
+
+```bash
+docker compose down && docker compose up -d
+```
+
+Now when you visit `http://localhost:3000`, you'll be redirected to a login page with a "Sign in with Microsoft" button. After signing in with your M365 account, you'll be redirected back to the support platform.
+
+#### What's protected
+
+| Route | Protected? | Reason |
+|---|---|---|
+| All pages (`/`, `/tickets/*`) | Yes | Middleware redirects to `/login` |
+| All API routes (`/api/tickets/*`, `/api/team`, etc.) | Yes | Returns 401 if not authenticated |
+| `/api/webhook/graph` | No | Must be reachable by Microsoft Graph |
+| `/api/auth/*` | No | NextAuth's own sign-in/callback routes |
+| `/login` | No | The login page itself |
+
+---
+
+### 3. Exposing the App (Webhook Requirement)
 
 Microsoft Graph webhooks need to reach your app over the internet. When Microsoft receives a new email, it sends an HTTP POST to your app's webhook URL. If your app is running on `localhost`, Microsoft can't reach it.
 
@@ -151,7 +201,7 @@ ngrok http 3000
 
 ---
 
-### 3. Registering the Webhook
+### 4. Registering the Webhook
 
 With the app running and a tunnel active, register the Graph webhook subscription:
 
@@ -195,7 +245,7 @@ You need to re-register the webhook when:
 
 ---
 
-### 4. Enabling AI Features
+### 5. Enabling AI Features
 
 AI features (ticket summaries, draft replies, translation fallback) use Anthropic's Claude Haiku.
 
@@ -220,7 +270,7 @@ The model used is `claude-haiku-4-5-20251001`. Cost is approximately $0.002 per 
 
 ---
 
-### 5. Configuring Enrichment
+### 6. Configuring Enrichment
 
 The enrichment panel (right sidebar in ticket detail) can pull real data from external services. All three integrations are optional and independent.
 
@@ -326,6 +376,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Architecture
 
+![Diagram showing the technical structure of the project](./Studyflash Support MVP.png)
 ```
 ┌──────────────┐     ┌───────────────────────────────────────────┐     ┌────────────┐
 │   Outlook    │────▶│          Next.js 14 (App Router)          │────▶│ PostgreSQL │

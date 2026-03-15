@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { translateBatch } from "@/lib/translate";
+import { requireAuth } from "@/lib/auth";
 
 /**
  * POST /api/tickets/[id]/translate
@@ -19,6 +20,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requireAuth();
+  if (auth instanceof NextResponse) return auth;
+
   const ticket = await prisma.ticket.findUnique({
     where: { id: params.id },
     include: { messages: { orderBy: { sentAt: "asc" } } },
