@@ -37,7 +37,8 @@ export async function POST(
         ticket.outlookMessageId,
         bodyHtml,
         ticket.fromEmail,
-        ticket.subject
+        ticket.subject,
+        ticket.outlookThreadId // conversationId for sendMail fallback
       );
       emailSent = true;
     } catch (err) {

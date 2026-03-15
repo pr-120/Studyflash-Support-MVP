@@ -60,6 +60,16 @@ async function processNotification(notification: {
   const messageId = notification.resourceData?.id;
   if (!messageId) return;
 
+  // ── Deduplication: skip if we already processed this message ──
+  // Graph can send duplicate notifications for the same message.
+  const existingMessage = await prisma.message.findFirst({
+    where: { outlookMessageId: messageId },
+  });
+  if (existingMessage) {
+    console.log(`Skipping duplicate notification for message ${messageId}`);
+    return;
+  }
+
   // Fetch full message from Graph
   const message = await getMessage(messageId);
   if (!message) return;
@@ -71,6 +81,12 @@ async function processNotification(notification: {
   const bodyHtml = message.body?.contentType === "html" ? bodyText : undefined;
   const conversationId = message.conversationId;
 
+  // Skip emails sent by ourselves (outbound replies we sent via Graph)
+  const supportMailbox = process.env.SUPPORT_MAILBOX?.toLowerCase();
+  if (supportMailbox && fromEmail.toLowerCase() === supportMailbox) {
+    return;
+  }
+
   // Check if this is a reply to an existing ticket thread
   const existingTicket = conversationId
     ? await prisma.ticket.findUnique({ where: { outlookThreadId: conversationId } })
@@ -78,25 +94,33 @@ async function processNotification(notification: {
 
   if (existingTicket) {
     // Add as a new message on existing ticket
+    const plainText = bodyText.replace(/<[^>]+>/g, "");
     await prisma.message.create({
       data: {
         ticketId: existingTicket.id,
         direction: "INBOUND",
         fromEmail,
         fromName,
-        bodyText: bodyText.replace(/<[^>]+>/g, ""), // strip HTML for text
+        bodyText: plainText,
         bodyHtml,
         outlookMessageId: messageId,
       },
     });
 
-    // Re-open if it was resolved/waiting
-    if (["RESOLVED", "WAITING"].includes(existingTicket.status)) {
-      await prisma.ticket.update({
-        where: { id: existingTicket.id },
-        data: { status: "OPEN" },
-      });
-    }
+    // Update the ticket's outlookMessageId to the latest message
+    // so future replies reference the most recent message in the thread
+    await prisma.ticket.update({
+      where: { id: existingTicket.id },
+      data: {
+        outlookMessageId: messageId,
+        // Re-open if it was resolved/waiting
+        ...(["RESOLVED", "WAITING"].includes(existingTicket.status)
+          ? { status: "OPEN" as const }
+          : {}),
+      },
+    });
+
+    console.log(`Added message to ticket ${existingTicket.id} from ${fromEmail}`);
   } else {
     // New ticket - run AI analysis
     const plainText = bodyText.replace(/<[^>]+>/g, "");

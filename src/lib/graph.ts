@@ -71,13 +71,15 @@ async function graphFetch(path: string, options: RequestInit = {}) {
 /**
  * Send a reply to an existing email thread.
  * First tries the Graph `reply` endpoint (stays in-thread).
- * If that fails (e.g., spam block on new tenants), falls back to `sendMail`.
+ * If that fails (e.g., spam block on new tenants), falls back to `sendMail`
+ * with the conversationId preserved to maintain thread parity.
  */
 export async function sendReply(
   outlookMessageId: string,
   replyBodyHtml: string,
   recipientEmail: string,
   subject: string,
+  conversationId?: string | null,
   comment?: string
 ) {
   const mailbox = process.env.SUPPORT_MAILBOX!;
@@ -102,23 +104,30 @@ export async function sendReply(
   } catch (replyErr) {
     console.warn("Graph reply failed, trying sendMail fallback:", replyErr);
 
-    // Fallback: send as a new message (still appears as a reply due to subject)
+    // Fallback: sendMail with conversationId to preserve thread parity.
+    // Including conversationId tells Graph to place this email in the
+    // same conversation thread, even though it's sent via sendMail.
+    const message: Record<string, unknown> = {
+      subject: subject.startsWith("RE:") ? subject : `RE: ${subject}`,
+      body: {
+        contentType: "HTML",
+        content: replyBodyHtml,
+      },
+      toRecipients: [
+        {
+          emailAddress: { address: recipientEmail },
+        },
+      ],
+    };
+
+    // Preserve the conversation thread if we have the ID
+    if (conversationId) {
+      message.conversationId = conversationId;
+    }
+
     return graphFetch(`/users/${mailbox}/sendMail`, {
       method: "POST",
-      body: JSON.stringify({
-        message: {
-          subject: subject.startsWith("RE:") ? subject : `RE: ${subject}`,
-          body: {
-            contentType: "HTML",
-            content: replyBodyHtml,
-          },
-          toRecipients: [
-            {
-              emailAddress: { address: recipientEmail },
-            },
-          ],
-        },
-      }),
+      body: JSON.stringify({ message }),
     });
   }
 }
