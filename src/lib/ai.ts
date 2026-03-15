@@ -25,6 +25,20 @@ import { getLanguageName } from "./utils";
 
 const MODEL = "claude-haiku-4-5-20251001";
 
+const DEFAULT_SYSTEM_PROMPT = `You are a customer support agent for Studyflash, a flashcard and study app used by university students across Europe.
+
+Rules for all responses:
+- NEVER use HTML tags or HTML entities (no &nbsp;, no <br>, no <p>, etc.)
+- Use plain text only with regular line breaks
+- Be professional but warm
+- Reference specific Studyflash features by name when relevant
+- Sign off as "The Studyflash Support Team"
+- Never promise features or timelines you can't guarantee`;
+
+function getSystemPrompt(): string {
+  return process.env.AI_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT;
+}
+
 function getClient(): Anthropic | null {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return null;
@@ -131,35 +145,39 @@ export async function analyzeTicket(
   }
 
   try {
-    const prompt = `You are a Studyflash customer support assistant. Studyflash is a flashcard and study app.
-
-Given this support ticket, provide two things:
+    const systemPrompt = getSystemPrompt();
+    const prompt = `Given this support ticket, provide two things:
 
 TICKET SUBJECT: ${subject}
 TICKET BODY:
 ${bodyText}
 
-Respond with ONLY a JSON object (no markdown, no explanation):
+Respond with ONLY a JSON object (no markdown, no code fences, no explanation):
 {
   "summary": "<1-2 sentences in English summarizing the specific issue>",
-  "aiDraft": "<a polite, helpful reply in ${language.toUpperCase()} (the user's language), referencing their specific issue, signed off as The Studyflash Support Team, 2-4 paragraphs>"
+  "aiDraft": "<a polite, helpful reply in ${language.toUpperCase()} (the user's language), referencing their specific issue, 2-4 paragraphs>"
 }
 
-For the draft:
+CRITICAL formatting rules for the aiDraft:
+- Write in PLAIN TEXT only — no HTML tags, no HTML entities (no &nbsp; no <br> no <p>)
+- Use regular line breaks (newlines) for paragraph separation
 - Write in ${language.toUpperCase()} — this is the user's language
 - Be empathetic and specific to their issue
-- Don't promise things you can't guarantee
 - Keep it concise`;
 
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 768,
+      system: systemPrompt,
       messages: [{ role: "user", content: prompt }],
     });
 
     const text =
       response.content[0].type === "text" ? response.content[0].text : "";
-    const cleaned = text.replace(/```json\n?|\n?```/g, "").trim();
+    const cleaned = text
+      .replace(/```json\n?|\n?```/g, "")
+      .replace(/&nbsp;/g, " ") // strip any HTML entities that slipped through
+      .trim();
     const parsed = JSON.parse(cleaned);
 
     return {
@@ -199,7 +217,8 @@ export async function regenerateDraft(
     return templateDraft(language, "OTHER" as Category);
   }
 
-  const prompt = `You are a Studyflash customer support agent. Write a reply to this support ticket.
+  const systemPrompt = getSystemPrompt();
+  const prompt = `Write a reply to this support ticket.
 
 ORIGINAL TICKET SUBJECT: ${ticketSubject}
 ORIGINAL TICKET BODY:
@@ -207,17 +226,20 @@ ${ticketBody}
 
 ${customInstructions ? `SPECIAL INSTRUCTIONS: ${customInstructions}\n` : ""}
 Requirements:
+- Write in PLAIN TEXT only — no HTML tags, no HTML entities (no &nbsp; no <br> no <p>)
+- Use regular line breaks for paragraph separation
 - Write in language: ${language} (ISO 639-1)
 - Be empathetic and helpful
 - Address the specific issue raised
-- Sign off as "The Studyflash Support Team"
 - Return ONLY the reply text, no JSON, no preamble`;
 
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 512,
+    system: systemPrompt,
     messages: [{ role: "user", content: prompt }],
   });
 
-  return response.content[0].type === "text" ? response.content[0].text : "";
+  const draft = response.content[0].type === "text" ? response.content[0].text : "";
+  return draft.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
 }
