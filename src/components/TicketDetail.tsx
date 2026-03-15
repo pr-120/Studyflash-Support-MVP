@@ -12,6 +12,7 @@ import {
   Headphones,
   Clock,
   AlertTriangle,
+  Languages,
 } from "lucide-react";
 import { cn, formatRelativeTime, getLanguageName } from "@/lib/utils";
 import {
@@ -78,6 +79,13 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
 
   // Field editing
   const [updatingField, setUpdatingField] = useState<string | null>(null);
+
+  // Translation
+  const [translations, setTranslations] = useState<
+    Record<string, string>
+  >({});
+  const [translating, setTranslating] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(false);
 
   const fetchTicket = useCallback(async () => {
     setLoading(true);
@@ -162,6 +170,35 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
     }
   }
 
+  async function handleTranslate() {
+    if (!ticket || translating) return;
+    if (Object.keys(translations).length > 0) {
+      // Already translated — just toggle visibility
+      setShowTranslation(!showTranslation);
+      return;
+    }
+    setTranslating(true);
+    try {
+      const res = await fetch(`/api/tickets/${ticket.id}/translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetLanguage: "en" }),
+      });
+      if (!res.ok) throw new Error("Translation failed");
+      const data = await res.json();
+      const map: Record<string, string> = {};
+      for (const t of data.translations) {
+        map[t.messageId] = t.translated;
+      }
+      setTranslations(map);
+      setShowTranslation(true);
+    } catch (err) {
+      console.error("Translation failed:", err);
+    } finally {
+      setTranslating(false);
+    }
+  }
+
   async function handleUpdateField(field: string, value: string | null) {
     if (!ticket) return;
     setUpdatingField(field);
@@ -238,6 +275,28 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
                 <LanguageBadge language={ticket.language} />
               )}
 
+              {/* Translate toggle — only show for non-English tickets */}
+              {ticket.language && ticket.language !== "en" && (
+                <button
+                  onClick={handleTranslate}
+                  disabled={translating}
+                  className={cn(
+                    "flex items-center gap-1 h-7 rounded-md border px-2 text-xs font-medium transition-colors",
+                    showTranslation
+                      ? "border-blue-300 bg-blue-50 text-blue-700"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                  )}
+                  title={showTranslation ? "Show original" : "Translate to English"}
+                >
+                  {translating ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Languages className="h-3 w-3" />
+                  )}
+                  {showTranslation ? "Original" : "Translate"}
+                </button>
+              )}
+
               {/* Status */}
               <select
                 value={ticket.status}
@@ -309,7 +368,11 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
         {/* Message thread */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {ticket.messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} />
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              translation={showTranslation ? translations[msg.id] : undefined}
+            />
           ))}
         </div>
 
@@ -422,8 +485,15 @@ export function TicketDetail({ ticketId }: { ticketId: string }) {
 
 /* ---------- Message bubble ---------- */
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  translation,
+}: {
+  message: Message;
+  translation?: string;
+}) {
   const isInbound = message.direction === "INBOUND";
+  const displayText = translation ?? message.bodyText;
 
   return (
     <div className={cn("flex", isInbound ? "justify-start" : "justify-end")}>
@@ -453,6 +523,12 @@ function MessageBubble({ message }: { message: Message }) {
             <Clock className="h-2.5 w-2.5" />
             {formatRelativeTime(message.sentAt)}
           </span>
+          {translation && isInbound && (
+            <span className="flex items-center gap-0.5 text-blue-500">
+              <Languages className="h-2.5 w-2.5" />
+              translated
+            </span>
+          )}
         </div>
 
         <div
@@ -461,7 +537,7 @@ function MessageBubble({ message }: { message: Message }) {
             isInbound ? "text-gray-800" : "text-white"
           )}
         >
-          {message.bodyText}
+          {displayText}
         </div>
       </div>
     </div>
