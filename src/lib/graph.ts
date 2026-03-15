@@ -70,29 +70,57 @@ async function graphFetch(path: string, options: RequestInit = {}) {
 
 /**
  * Send a reply to an existing email thread.
- * The reply will appear in Outlook as part of the same conversation thread.
+ * First tries the Graph `reply` endpoint (stays in-thread).
+ * If that fails (e.g., spam block on new tenants), falls back to `sendMail`.
  */
 export async function sendReply(
   outlookMessageId: string,
   replyBodyHtml: string,
+  recipientEmail: string,
+  subject: string,
   comment?: string
 ) {
   const mailbox = process.env.SUPPORT_MAILBOX!;
-  return graphFetch(
-    `/users/${mailbox}/messages/${outlookMessageId}/reply`,
-    {
+
+  // Try in-thread reply first
+  try {
+    return await graphFetch(
+      `/users/${mailbox}/messages/${outlookMessageId}/reply`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message: {
+            body: {
+              contentType: "HTML",
+              content: replyBodyHtml,
+            },
+          },
+          comment: comment ?? "",
+        }),
+      }
+    );
+  } catch (replyErr) {
+    console.warn("Graph reply failed, trying sendMail fallback:", replyErr);
+
+    // Fallback: send as a new message (still appears as a reply due to subject)
+    return graphFetch(`/users/${mailbox}/sendMail`, {
       method: "POST",
       body: JSON.stringify({
         message: {
+          subject: subject.startsWith("RE:") ? subject : `RE: ${subject}`,
           body: {
             contentType: "HTML",
             content: replyBodyHtml,
           },
+          toRecipients: [
+            {
+              emailAddress: { address: recipientEmail },
+            },
+          ],
         },
-        comment: comment ?? "",
       }),
-    }
-  );
+    });
+  }
 }
 
 /**

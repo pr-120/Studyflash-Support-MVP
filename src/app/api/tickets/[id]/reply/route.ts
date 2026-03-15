@@ -24,20 +24,26 @@ export async function POST(
   const body = await req.json();
   const { bodyHtml, senderName } = SendReplySchema.parse(body);
 
-  // If we have an Outlook message ID, send via Graph API (stays in thread)
+  // Send via Graph API if we have an Outlook message ID
+  let emailSent = false;
+  let emailError: string | null = null;
   if (ticket.outlookMessageId) {
     try {
-      await sendReply(ticket.outlookMessageId, bodyHtml);
-    } catch (err) {
-      console.error("Graph send failed:", err);
-      return NextResponse.json(
-        { error: "Failed to send via Outlook. Check Graph API credentials." },
-        { status: 502 }
+      await sendReply(
+        ticket.outlookMessageId,
+        bodyHtml,
+        ticket.fromEmail,
+        ticket.subject
       );
+      emailSent = true;
+    } catch (err) {
+      emailError = err instanceof Error ? err.message : "Unknown error";
+      console.error("Graph send failed (reply saved to DB anyway):", err);
+      // Don't return an error — save the message to DB regardless
     }
   }
 
-  // Always save to our DB regardless of Outlook sync
+  // Always save to our DB regardless of email delivery status
   const plainText = bodyHtml.replace(/<[^>]+>/g, "");
   const message = await prisma.message.create({
     data: {
@@ -58,5 +64,12 @@ export async function POST(
     });
   }
 
-  return NextResponse.json(message, { status: 201 });
+  return NextResponse.json(
+    {
+      ...message,
+      emailSent,
+      emailError,
+    },
+    { status: 201 }
+  );
 }

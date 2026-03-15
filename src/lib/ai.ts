@@ -23,7 +23,7 @@ import { Category, Priority } from "@prisma/client";
 import { classifyTicket } from "./classify";
 import { getLanguageName } from "./utils";
 
-const MODEL = "claude-3-5-haiku-latest";
+const MODEL = "claude-haiku-4-5-20251001";
 
 function getClient(): Anthropic | null {
   const key = process.env.ANTHROPIC_API_KEY;
